@@ -1,9 +1,9 @@
 // Service worker for the Site Materials static PWA.
-// Caches the app shell so it opens offline; the clock-out reliability itself is
-// handled by the IndexedDB queue in app.js. Supabase calls (cross-origin) are
-// never cached — they always hit the network.
+// Network-first for same-origin assets so code/style updates land immediately
+// when online; the cache is the offline fallback. Supabase calls (cross-origin)
+// always hit the network. Clock-out reliability lives in the IndexedDB queue.
 
-const CACHE = "site-materials-web-v1";
+const CACHE = "site-materials-web-v2";
 const SHELL = ["./", "index.html", "app.js", "styles.css", "icon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -18,17 +18,15 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // let Supabase calls pass through
+  if (url.origin !== self.location.origin) return; // Supabase & other hosts: passthrough
 
-  if (req.mode === "navigate") {
-    // SPA: serve cached shell when the network is down.
-    e.respondWith(fetch(req).catch(() => caches.match("index.html")));
-    return;
-  }
+  // Network-first: fetch fresh, update cache, fall back to cache when offline.
   e.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
-      return res;
-    }))
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+        return res;
+      })
+      .catch(() => caches.match(req).then((hit) => hit || (req.mode === "navigate" ? caches.match("index.html") : Response.error())))
   );
 });

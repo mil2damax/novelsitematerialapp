@@ -50,6 +50,7 @@ async function apiCall(action, body = {}, fn = "api") {
   return j;
 }
 const importCall = (action, body = {}) => apiCall(action, body, "imports");
+const requestCall = (action, body = {}) => apiCall(action, body, "requests");
 
 // ---- Direct reads ----------------------------------------------------------
 async function readTrades() { return (await sb.from("trades").select("id,name").order("name")).data || []; }
@@ -124,10 +125,10 @@ function header(active) {
   const tab = (href, label) => `<a href="${href}" class="${active === href ? "active" : ""}">${label}</a>`;
   let tabs = "";
   if (admin) {
-    tabs = [tab("#/", "Trades"), tab("#/admin/inventory", "Inventory"), tab("#/admin/requests", "Requests"),
+    tabs = [tab("#/", "Trades"), tab("#/admin/inventory", "Inventory"), tab("#/request", "Request"), tab("#/admin/requests", "Requests"),
       tab("#/admin/deliveries", "Delivery"), tab("#/admin/activity", "Activity"), tab("#/admin/settings", "Settings")].join("");
   } else {
-    tabs = tab("#/account", "My PIN");
+    tabs = tab("#/request", "Request") + tab("#/account", "My PIN");
   }
   return `<header>
     <a class="wordmark" href="#/">
@@ -264,18 +265,10 @@ async function viewTrade(tradeId) {
 
   function openRequest(m, loc, qty) {
     const panel = document.getElementById("reqpanel");
-    panel.innerHTML = `<div class="box amber"><b>Request more stock</b><div class="sub">${esc(m.name)}${loc ? " · " + esc(loc.name) : ""}</div>
-      <div class="inline" style="margin-top:10px"><div><label>How many (${esc(m.unit)})</label><input id="rq-qty" type="number" min="1" step="any" value="${qty}" /></div>
-      <div class="grow2"><label>Note (optional)</label><input id="rq-note" placeholder="e.g. needed by Friday" /></div></div>
-      <div id="rq-msg"></div><div class="spacer"></div><button class="amber" id="rq-go">Send request</button> <button class="link" id="rq-cancel">Cancel</button></div>`;
+    panel.innerHTML = `<div class="box amber"><b>Not enough on hand.</b><div class="sub">Send management a request for ${esc(m.name)} — the form lets you add a photo, Lowe's link/SKU, why it's needed, and whether it's a takeoff shortfall.</div>
+      <div class="spacer"></div><button class="amber" id="rq-go">Request ${fmt(qty)} ${esc(m.unit)} →</button> <button class="link" id="rq-cancel">Cancel</button></div>`;
     document.getElementById("rq-cancel").onclick = () => (panel.innerHTML = "");
-    document.getElementById("rq-go").onclick = async () => {
-      const q = Number(document.getElementById("rq-qty").value);
-      try {
-        await apiCall("create_request", { tradeId, materialId: m.id, materialName: m.name, locationId: loc?.locationId || null, quantity: q, notes: document.getElementById("rq-note").value });
-        panel.innerHTML = `<div class="notice ok">Requested ${fmt(q)} ${esc(m.unit)} of ${esc(m.name)}. Your owners will see it under Requests.</div>`;
-      } catch (e) { document.getElementById("rq-msg").innerHTML = `<div class="notice error">${esc(e.message)}</div>`; }
-    };
+    document.getElementById("rq-go").onclick = () => { location.hash = `#/request?item=${encodeURIComponent(m.name)}&qty=${qty}`; render(); };
   }
 
   async function submit() {
@@ -328,16 +321,113 @@ async function viewInventory() {
   }).subscribe();
 }
 
+// Shrink a chosen photo client-side (phones take huge files) before upload.
+function resizePhoto(file, maxDim = 1280, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width: w, height: h } = img;
+      if (w > h && w > maxDim) { h = Math.round((h * maxDim) / w); w = maxDim; }
+      else if (h > maxDim) { w = Math.round((w * maxDim) / h); h = maxDim; }
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL("image/jpeg", quality).split(",")[1]);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// The request form — anyone can open it (field or office).
+async function viewRequestForm() {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const prefill = q.get("item") || "";
+  const prefillQty = q.get("qty") || "";
+  let photoB64 = null;
+  app.innerHTML = header("#/request") + `<h1>Request a material</h1>
+    <p class="sub">This goes to management as an order request. Be specific so they can order the right thing.</p>
+    <div class="box">
+      <div class="field"><label>What's needed</label><input id="rq-title" value="${esc(prefill)}" placeholder="e.g. 2-gang PVC fire-rated box" /></div>
+      <div class="field"><label>How many</label><input id="rq-qty" type="number" min="1" step="any" value="${esc(prefillQty)}" /></div>
+      <div class="field"><label>Photo of what's needed</label>
+        <input id="rq-photo" type="file" accept="image/*" capture="environment" />
+        <div id="rq-preview"></div></div>
+      <div class="inline">
+        <div class="grow2"><label>Lowe's link (optional)</label><input id="rq-link" type="url" inputmode="url" placeholder="https://lowes.com/…" /></div>
+        <div><label>SKU / item #</label><input id="rq-sku" placeholder="e.g. 2987584" /></div>
+      </div>
+      <div class="field" style="margin-top:12px"><label>Why is this needed?</label><textarea id="rq-why" placeholder="What it's for + where — e.g. Floor 3 rooms 301–320 rough-in"></textarea></div>
+      <div class="field"><label>Are we short from the takeoff?</label>
+        <select id="rq-short"><option value="no">No — good to go</option><option value="yes">Yes — we're short</option></select></div>
+      <div class="field" id="rq-explainwrap" style="display:none"><label>Explain the shortfall</label><textarea id="rq-explain" placeholder="Why the takeoff came up short — e.g. takeoff counted 300 boxes but there are 320 rooms"></textarea></div>
+      <div id="rq-msg"></div>
+      <button class="block" id="rq-go">Send request</button>
+    </div>`;
+
+  const shortSel = document.getElementById("rq-short");
+  shortSel.onchange = () => { document.getElementById("rq-explainwrap").style.display = shortSel.value === "yes" ? "block" : "none"; };
+  const photoInput = document.getElementById("rq-photo");
+  photoInput.onchange = async () => {
+    const f = photoInput.files[0];
+    if (!f) { photoB64 = null; document.getElementById("rq-preview").innerHTML = ""; return; }
+    document.getElementById("rq-preview").innerHTML = `<div class="muted" style="font-size:13px;margin-top:6px">Compressing photo…</div>`;
+    try { photoB64 = await resizePhoto(f); document.getElementById("rq-preview").innerHTML = `<img src="data:image/jpeg;base64,${photoB64}" style="margin-top:8px;max-height:160px;border-radius:6px;border:1px solid var(--stone-line)" />`; }
+    catch { photoB64 = null; document.getElementById("rq-preview").innerHTML = `<div class="notice error">Couldn't read that image.</div>`; }
+  };
+
+  document.getElementById("rq-go").onclick = async () => {
+    const btn = document.getElementById("rq-go"); const msg = document.getElementById("rq-msg");
+    const short = shortSel.value === "yes";
+    btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      await requestCall("create_request", {
+        title: document.getElementById("rq-title").value,
+        quantity: Number(document.getElementById("rq-qty").value),
+        why: document.getElementById("rq-why").value,
+        lowesLink: document.getElementById("rq-link").value,
+        sku: document.getElementById("rq-sku").value,
+        takeoffShort: short,
+        takeoffExplain: short ? document.getElementById("rq-explain").value : "",
+        photoBase64: photoB64,
+        photoMime: "image/jpeg",
+      });
+      app.innerHTML = header("#/request") + `<div class="box green"><h2 style="margin-top:0">Request sent ✓</h2><p>Management will see it under Requests. Thanks for the detail.</p><div class="spacer"></div><button id="again">Request something else</button></div>`;
+      document.getElementById("again").onclick = () => { location.hash = "#/request"; render(); };
+    } catch (e) { msg.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = "Send request"; }
+  };
+}
+
+// Admin worklist — the order-placement queue.
 async function viewRequests() {
-  const status = (location.hash.split("?")[1] || "").replace("status=", "") || "open";
-  app.innerHTML = header("#/admin/requests") + `<h1>Requests</h1><p class="sub">Restock requests from the crew.</p>
-    <nav class="tabs" style="margin:10px 0">${["open", "ordered", "fulfilled", "cancelled", "all"].map((t) => `<a href="#/admin/requests?status=${t}" class="${t === status ? "active" : ""}">${t}</a>`).join("")}</nav><div id="rq">Loading…</div>`;
-  const { requests } = await apiCall("list_requests", { status });
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const status = q.get("status") || "open";
+  const takeoffOnly = q.get("takeoff") === "1";
+  const { requests } = await requestCall("list_requests", { status, takeoffOnly });
   const badge = { open: "amber", ordered: "blue", fulfilled: "green", cancelled: "grey" };
-  document.getElementById("rq").innerHTML = requests.length ? `<div class="list">${requests.map((r) => `<div class="row"><div><div class="name">${fmt(r.quantity)} · ${esc(r.material_name)} <span class="badge ${badge[r.status]}">${r.status}</span></div>
-    <div class="meta">${esc(r.workers?.name || "—")}${r.trades?.name ? " · " + esc(r.trades.name) : ""}${r.locations?.name ? " · " + esc(r.locations.name) : ""} · ${new Date(r.created_at).toLocaleString()}</div>${r.notes ? `<div class="meta">“${esc(r.notes)}”</div>` : ""}</div>
-    <div style="display:flex;gap:4px;flex-wrap:wrap">${r.status !== "ordered" && r.status !== "fulfilled" ? `<button class="sm outline" data-set="${r.id}" data-status="ordered">Ordered</button>` : ""}${r.status !== "fulfilled" ? `<button class="sm outline" data-set="${r.id}" data-status="fulfilled">Fulfilled</button>` : ""}${r.status !== "cancelled" && r.status !== "fulfilled" ? `<button class="sm outline" data-set="${r.id}" data-status="cancelled">Cancel</button>` : ""}</div></div>`).join("")}</div>` : `<div class="box muted">No ${status === "all" ? "" : status} requests.</div>`;
-  app.querySelectorAll("[data-set]").forEach((b) => (b.onclick = async () => { try { await apiCall("set_request_status", { id: b.dataset.set, status: b.dataset.status }); render(); } catch (e) { toast(e.message); } }));
+  const cards = requests.length ? requests.map((r) => `
+    <div class="box" style="margin-top:12px">
+      <div style="display:flex;gap:14px">
+        ${r.photo_url ? `<a href="${esc(r.photo_url)}" target="_blank" rel="noopener"><img src="${esc(r.photo_url)}" style="width:76px;height:76px;object-fit:cover;border-radius:6px;border:1px solid var(--stone-line)" /></a>` : `<div style="width:76px;height:76px;border-radius:6px;border:1px dashed var(--stone-line);display:flex;align-items:center;justify-content:center;color:var(--stone);font-size:11px;text-align:center">no photo</div>`}
+        <div style="flex:1;min-width:0">
+          <div class="name" style="font-family:var(--serif);font-size:18px">${fmt(r.quantity)} · ${esc(r.material_name)}
+            <span class="badge ${badge[r.status]}">${r.status}</span>${r.takeoff_short ? `<span class="badge" style="background:var(--brick);color:#fff">takeoff short</span>` : ""}</div>
+          <div class="meta">${esc(r.workers?.name || "—")}${r.trades?.name ? " · " + esc(r.trades.name) : ""} · ${new Date(r.created_at).toLocaleDateString()}</div>
+          <div style="margin-top:6px;font-size:14px"><b>Why:</b> ${esc(r.why || "—")}</div>
+          ${r.takeoff_short && r.takeoff_explain ? `<div style="font-size:14px;color:var(--brick)"><b>Shortfall:</b> ${esc(r.takeoff_explain)}</div>` : ""}
+          <div class="meta" style="margin-top:6px">${r.sku ? "SKU " + esc(r.sku) : ""}${r.lowes_link ? ` · <a href="${esc(r.lowes_link)}" target="_blank" rel="noopener">Lowe's link ↗</a>` : ""}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+        ${r.status !== "ordered" && r.status !== "fulfilled" ? `<button class="sm outline" data-set="${r.id}" data-status="ordered">Mark ordered</button>` : ""}
+        ${r.status !== "fulfilled" ? `<button class="sm outline" data-set="${r.id}" data-status="fulfilled">Received</button>` : ""}
+        ${r.status !== "cancelled" && r.status !== "fulfilled" ? `<button class="sm outline" data-set="${r.id}" data-status="cancelled">Cancel</button>` : ""}
+      </div>
+    </div>`).join("") : `<div class="box muted">No ${status === "all" ? "" : status}${takeoffOnly ? " takeoff-shortfall" : ""} requests.</div>`;
+  app.innerHTML = header("#/admin/requests") + `<h1>Requests</h1><p class="sub">Order worklist — everything management needs to place the order.</p>
+    <nav class="tabs" style="margin:10px 0">${["open", "ordered", "fulfilled", "cancelled", "all"].map((t) => `<a href="#/admin/requests?status=${t}${takeoffOnly ? "&takeoff=1" : ""}" class="${t === status ? "active" : ""}">${t}</a>`).join("")}
+      <a href="#/admin/requests?status=${status}${takeoffOnly ? "" : "&takeoff=1"}" class="${takeoffOnly ? "active" : ""}" style="margin-left:8px">⚠ takeoff shortfalls</a></nav>
+    <div id="rq">${cards}</div>`;
+  app.querySelectorAll("[data-set]").forEach((b) => (b.onclick = async () => { try { await requestCall("set_request_status", { id: b.dataset.set, status: b.dataset.status }); render(); } catch (e) { toast(e.message); } }));
 }
 
 async function viewActivity() {
@@ -469,6 +559,7 @@ async function render() {
   if (adminOnly && s.role !== "admin") { location.hash = "#/"; return render(); }
   try {
     if (path === "#/login" || path === "#/") return await viewHome();
+    if (path === "#/request") return await viewRequestForm();
     if (path.startsWith("#/trade/")) return await viewTrade(path.split("/")[2]);
     if (path === "#/admin/inventory") return await viewInventory();
     if (path === "#/admin/requests") return await viewRequests();
