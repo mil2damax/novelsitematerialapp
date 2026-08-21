@@ -129,17 +129,23 @@ function header(active) {
     tabs = tab("#/account", "My PIN");
   }
   return `<header>
-    <div><div class="brand">Site Materials</div><div class="who">${esc(s?.name || "")} · ${esc(s?.role === "admin" ? "owner" : "field")}</div></div>
+    <a class="wordmark" href="#/">
+      <span class="mark">N</span>
+      <span class="wm-lines"><span class="wm-eyebrow">Novel Construction</span><span class="wm-title">Site Materials</span></span>
+    </a>
     <nav class="tabs">${tabs}<a href="#/logout">Log out</a></nav>
-  </header>`;
+  </header>
+  <div class="wholine">${esc(s?.name || "")} · ${esc(s?.role === "admin" ? "owner" : "field")}</div>`;
 }
 
 // ---- Views -----------------------------------------------------------------
 async function viewLogin() {
   const workers = await readWorkersForLogin();
   app.innerHTML = `<div class="login">
-    <h1>Site Materials</h1>
-    <p class="sub">Novel Construction · pick your name and enter your PIN.</p>
+    <div class="brand-lockup"><span class="mark">N</span><span style="display:flex;flex-direction:column;line-height:1.2"><span class="co">Novel Construction</span><span class="nm">Site Materials</span></span></div>
+    <p class="eyebrow">Field &amp; office</p>
+    <h1>Clock in.</h1>
+    <p class="sub">Pick your name and enter your PIN.</p>
     <div class="field" style="margin-top:20px"><label>Name</label>
       <select id="who"><option value="">Select your name…</option>${workers.map((w) => `<option value="${w.id}" data-role="${w.role}" data-trade="${w.trade_id || ""}">${esc(w.name)}</option>`).join("")}</select></div>
     <div class="field"><label>PIN</label><input id="pin" type="password" inputmode="numeric" autocomplete="off" /></div>
