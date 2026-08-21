@@ -36,9 +36,9 @@ function toast(msg) {
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 3000);
 }
 
-async function apiCall(action, body = {}) {
+async function apiCall(action, body = {}, fn = "api") {
   const s = getSession();
-  const r = await fetch(FN + "/api", {
+  const r = await fetch(FN + "/" + fn, {
     method: "POST",
     headers: { apikey: ANON_KEY, Authorization: "Bearer " + ANON_KEY, "Content-Type": "application/json", "x-session-token": s?.token || "" },
     body: JSON.stringify({ action, ...body }),
@@ -49,6 +49,7 @@ async function apiCall(action, body = {}) {
   if (!r.ok) throw Object.assign(new Error(j.error || "Something went wrong."), { status: r.status, code: j.error });
   return j;
 }
+const importCall = (action, body = {}) => apiCall(action, body, "imports");
 
 // ---- Direct reads ----------------------------------------------------------
 async function readTrades() { return (await sb.from("trades").select("id,name").order("name")).data || []; }
@@ -350,44 +351,64 @@ async function viewActivity() {
 }
 
 async function viewDeliveries() {
-  const [trades, locations] = await Promise.all([readTrades(), readLocations()]);
-  app.innerHTML = header("#/admin/deliveries") + `<h1>Log delivery</h1><p class="sub">Mirrors your verification workflow — posts straight to inventory.</p>
-    <div class="box"><div class="inline">
-      <div><label>Trade</label><select id="d-trade">${trades.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></div>
-      <div><label>Supplier / source</label><input id="d-source" placeholder="Lowe's, Home Depot Pro…" /></div>
-    </div><div class="inline" style="margin-top:10px">
-      <div><label>PO # (optional)</label><input id="d-po" /></div>
-      <div><label>Date</label><input id="d-date" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
-    </div>
-    <h2>Line items</h2><div id="d-lines"></div>
-    <button class="sm outline" id="d-addline">+ Add line</button>
-    <div class="field" style="margin-top:12px"><label>Notes (optional)</label><input id="d-notes" /></div>
-    <div id="d-msg"></div><div class="spacer"></div><button class="block" id="d-submit">Post delivery</button></div>`;
-  let mats = [];
-  const linesEl = document.getElementById("d-lines");
-  const lineRow = () => {
-    const div = document.createElement("div"); div.className = "inline"; div.style.marginBottom = "8px";
-    div.innerHTML = `<div class="grow2"><select class="d-mat"><option value="">Material…</option>${mats.map((m) => `<option value="${m.id}" data-unit="${esc(m.unit)}">${esc(m.name)}</option>`).join("")}</select></div>
-      <div><select class="d-loc">${locations.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("")}</select></div>
-      <div style="flex:.6"><input class="d-qty" type="number" min="0" step="any" placeholder="Qty" /></div>
-      <div style="flex:0"><button class="sm outline d-del">✕</button></div>`;
-    div.querySelector(".d-del").onclick = () => div.remove();
-    linesEl.appendChild(div);
-  };
-  const loadMats = async () => { mats = (await sb.from("materials").select("id,name,unit").eq("trade_id", document.getElementById("d-trade").value).order("name")).data || []; linesEl.innerHTML = ""; lineRow(); };
-  document.getElementById("d-trade").onchange = loadMats;
-  document.getElementById("d-addline").onclick = lineRow;
-  await loadMats();
-  document.getElementById("d-submit").onclick = async () => {
-    const lines = [...linesEl.querySelectorAll(".inline")].map((r) => ({ materialId: r.querySelector(".d-mat").value, locationId: r.querySelector(".d-loc").value, quantity: Number(r.querySelector(".d-qty").value) })).filter((l) => l.materialId && l.quantity > 0);
-    const msg = document.getElementById("d-msg");
-    if (!lines.length) { msg.innerHTML = `<div class="notice error">Add at least one line with a quantity.</div>`; return; }
-    try {
-      await apiCall("record_delivery", { tradeId: document.getElementById("d-trade").value, source: document.getElementById("d-source").value, poNumber: document.getElementById("d-po").value, deliveryDate: document.getElementById("d-date").value, notes: document.getElementById("d-notes").value, lines });
-      msg.innerHTML = `<div class="notice ok">Delivery posted — inventory updated.</div>`;
-      document.getElementById("d-source").value = ""; document.getElementById("d-po").value = ""; linesEl.innerHTML = ""; lineRow();
-    } catch (e) { msg.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; }
-  };
+  const batchId = new URLSearchParams(location.hash.split("?")[1] || "").get("batch");
+  if (batchId) return viewImportBatch(batchId);
+
+  app.innerHTML = header("#/admin/deliveries") + `<h1>Deliveries</h1>
+    <p class="sub">Pulled from your delivery tracker. Received items land here to review, then publish to inventory.</p>
+    <div class="box"><b>How this works</b><p class="sub" style="margin-top:6px">When the tracker updates, ask Claude to “pull the latest Tru Durham tracker.” The received rows show up below as a pending batch. Review them, then Publish — that's the moment stock moves.</p></div>
+    <div id="batches" class="center muted">Loading…</div>`;
+  const { batches } = await importCall("list_imports");
+  const count = (b) => (b.import_lines && b.import_lines[0] ? b.import_lines[0].count : 0);
+  const pend = batches.filter((b) => b.status === "pending");
+  const done = batches.filter((b) => b.status !== "pending");
+  document.getElementById("batches").innerHTML = `
+    <h2>Pending review</h2>
+    ${pend.length ? `<div class="list">${pend.map((b) => `<a class="row" href="#/admin/deliveries?batch=${b.id}"><div><div class="name">${esc(b.label)}</div><div class="meta">${count(b)} items · staged ${new Date(b.created_at).toLocaleDateString()}</div></div><span class="badge amber">review →</span></a>`).join("")}</div>` : `<div class="box muted">Nothing pending — ask Claude to pull the tracker.</div>`}
+    ${done.length ? `<h2>History</h2><div class="list">${done.map((b) => `<div class="row"><div><div class="name">${esc(b.label)}</div><div class="meta">${count(b)} items${b.published_at ? " · " + new Date(b.published_at).toLocaleDateString() : ""}</div></div><span class="badge ${b.status === "published" ? "green" : "grey"}">${b.status}</span></div>`).join("")}</div>` : ""}`;
+}
+
+async function viewImportBatch(id) {
+  const [{ batch, lines }, locations] = await Promise.all([importCall("get_import", { id }), readLocations()]);
+  if (!batch) { app.innerHTML = header("#/admin/deliveries") + `<div class="box">Batch not found.</div>`; return; }
+  const published = batch.status !== "pending";
+
+  function render_() {
+    const included = lines.filter((l) => l.include).length;
+    app.innerHTML = header("#/admin/deliveries") + `
+      <a href="#/admin/deliveries" class="muted" style="font-size:12px">← Deliveries</a>
+      <h1>${esc(batch.label)}</h1>
+      <p class="sub">${esc(batch.trades?.name || "")} · ${lines.length} received line${lines.length === 1 ? "" : "s"} from ${esc(batch.source || "tracker")}. Uncheck anything you don't want, then publish.</p>
+      ${published
+        ? `<div class="box green">This batch was ${esc(batch.status)}.</div>`
+        : `<div class="inline" style="margin:10px 0"><div class="grow2"><label>Store received items at</label><select id="pub-loc">${locations.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("")}</select></div>
+           <div style="flex:0;align-self:end"><button id="pub-go">Publish ${included} to inventory</button></div></div><div id="pub-msg"></div>`}
+      <div class="tablewrap" style="margin-top:10px"><table><thead><tr><th></th><th>Item</th><th class="num">Qty</th><th>Unit</th><th>Order / shipment</th><th>Notes</th></tr></thead>
+        <tbody>${lines.map((l) => `<tr class="${l.include ? "" : "muted"}"><td>${published ? "" : `<input type="checkbox" data-inc="${l.id}" ${l.include ? "checked" : ""} style="width:auto;min-height:0" />`}</td>
+          <td>${esc(l.item_name)}</td><td class="num">${fmt(l.quantity)}</td><td>${esc(l.unit)}</td><td class="meta">${esc((l.order_ref || "").slice(0, 22))}</td><td class="meta">${esc(l.notes || "")}</td></tr>`).join("")}</tbody></table></div>
+      ${published ? "" : `<div class="spacer"></div><button class="link" id="discard">Discard this batch</button>`}`;
+
+    if (published) return;
+    app.querySelectorAll("[data-inc]").forEach((cb) => (cb.onchange = async () => {
+      const line = lines.find((x) => x.id === cb.dataset.inc);
+      line.include = cb.checked;
+      document.getElementById("pub-go").textContent = `Publish ${lines.filter((l) => l.include).length} to inventory`;
+      try { await importCall("set_import_line", { lineId: cb.dataset.inc, include: cb.checked }); } catch (e) { toast(e.message); }
+    }));
+    document.getElementById("pub-go").onclick = async () => {
+      const btn = document.getElementById("pub-go"); btn.disabled = true; btn.textContent = "Publishing…";
+      try {
+        const r = await importCall("publish_import", { id, locationId: document.getElementById("pub-loc").value });
+        document.getElementById("pub-msg").innerHTML = `<div class="notice ok">Published ${r.published} items into inventory. Redirecting…</div>`;
+        setTimeout(() => { location.hash = "#/admin/inventory"; render(); }, 1000);
+      } catch (e) { document.getElementById("pub-msg").innerHTML = `<div class="notice error">${esc(e.message)}</div>`; btn.disabled = false; }
+    };
+    document.getElementById("discard").onclick = async () => {
+      if (!confirm("Discard this batch? Nothing goes to inventory.")) return;
+      try { await importCall("discard_import", { id }); location.hash = "#/admin/deliveries"; render(); } catch (e) { toast(e.message); }
+    };
+  }
+  render_();
 }
 
 async function viewSettings() {
