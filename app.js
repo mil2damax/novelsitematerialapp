@@ -60,7 +60,7 @@ async function readLocations() { return (await sb.from("locations").select("id,n
 async function readTrade(id) { return (await sb.from("trades").select("id,name").eq("id", id).single()).data; }
 
 async function readMaterialsWithStock(tradeId) {
-  const materials = (await sb.from("materials").select("id,name,unit,phase,reorder_threshold").eq("trade_id", tradeId).order("name")).data || [];
+  const materials = (await sb.from("materials").select("id,name,unit,phase,category,reorder_threshold").eq("trade_id", tradeId).order("name")).data || [];
   const ids = materials.map((m) => m.id);
   const inv = ids.length
     ? (await sb.from("inventory_items").select("quantity_on_hand,material_id,location_id,locations(name)").in("material_id", ids)).data || []
@@ -125,7 +125,7 @@ function header(active) {
   const tab = (href, label) => `<a href="${href}" class="${active === href ? "active" : ""}">${label}</a>`;
   let tabs = "";
   if (admin) {
-    tabs = [tab("#/", "Trades"), tab("#/admin/inventory", "Inventory"), tab("#/request", "Request"), tab("#/admin/requests", "Requests"),
+    tabs = [tab("#/", "Trades"), tab("#/admin/inventory", "Inventory"), tab("#/admin/requests", "Requests"),
       tab("#/admin/deliveries", "Delivery"), tab("#/admin/activity", "Activity"), tab("#/admin/settings", "Settings")].join("");
   } else {
     tabs = tab("#/request", "Request") + tab("#/account", "My PIN");
@@ -213,21 +213,28 @@ async function viewTrade(tradeId) {
   const cartQtyFor = (mid, lid) => cart.filter((c) => c.materialId === mid && c.locationId === lid).reduce((a, c) => a + c.qty, 0);
 
   function render_() {
-    const phases = [["Rough-In", "Rough-In"], ["Trim", "Trim"], [null, "Materials"]];
-    const groups = phases.map(([ph, label]) => ({ label, items: materials.filter((m) => (m.phase || null) === ph) })).filter((g) => g.items.length);
+    const matRow = (m) => {
+      const total = m.locations.reduce((a, l) => a + l.qty, 0);
+      const low = total <= Number(m.reorder_threshold);
+      return `<div class="row ${low ? "low" : ""}">
+        <div><div class="name">${esc(m.name)}</div><div class="meta">${m.locations.length ? m.locations.map((l) => `${esc(l.name)}: ${fmt(l.qty)} ${esc(m.unit)}`).join(" · ") : "No stock recorded"}</div></div>
+        <div style="text-align:right"><div class="${low ? "low-val" : ""}" style="font-weight:600">${fmt(total)} ${esc(m.unit)}</div>
+          <button class="sm outline" data-take="${m.id}">Take</button></div>
+      </div>`;
+    };
+    const phaseOrder = [["Rough-In", "Rough-In"], ["Trim", "Trim"], [null, "Other"]];
+    const groups = [];
+    for (const [ph, plabel] of phaseOrder) {
+      const inPhase = materials.filter((m) => (m.phase || null) === ph);
+      if (!inPhase.length) continue;
+      const cats = [...new Set(inPhase.map((m) => m.category || "General"))].sort();
+      groups.push({ label: plabel, cats: cats.map((c) => ({ name: c, items: inPhase.filter((m) => (m.category || "General") === c) })) });
+    }
     const backTab = s.role === "admin" ? "#/" : null;
     app.innerHTML = header(backTab || "#/") + `
       ${backTab ? `<a href="#/" class="muted" style="font-size:12px">← All trades</a>` : ""}
       <h1>${esc(trade.name)}</h1><p class="sub">Tap a material to take some. You can't take more than what's on hand.</p>
-      ${groups.map((g) => `<h2>${g.label}</h2><div class="list">${g.items.map((m) => {
-        const total = m.locations.reduce((a, l) => a + l.qty, 0);
-        const low = total <= Number(m.reorder_threshold);
-        return `<div class="row ${low ? "low" : ""}">
-          <div><div class="name">${esc(m.name)}</div><div class="meta">${m.locations.length ? m.locations.map((l) => `${esc(l.name)}: ${fmt(l.qty)} ${esc(m.unit)}`).join(" · ") : "No stock recorded"}</div></div>
-          <div style="text-align:right"><div class="${low ? "low-val" : ""}" style="font-weight:600">${fmt(total)} ${esc(m.unit)}</div>
-            <button class="sm outline" data-take="${m.id}">Take</button></div>
-        </div>`;
-      }).join("")}</div>`).join("") || `<div class="box">No materials set up for this trade yet.</div>`}
+      ${groups.map((g) => `<h2>${esc(g.label)}</h2>${g.cats.map((c) => `${(g.cats.length > 1 || c.name !== "General") ? `<div class="cat-label">${esc(c.name)}</div>` : ""}<div class="list" style="margin-bottom:14px">${c.items.map(matRow).join("")}</div>`).join("")}`).join("") || `<div class="box">No materials set up for this trade yet.</div>`}
       <div id="takepanel"></div>
       <div id="reqpanel"></div>
       ${cart.length ? `<div class="box"><b>Taking (${cart.length})</b>${cart.map((c, i) => `<div class="row"><div>${fmt(c.qty)} ${esc(c.unit)} · ${esc(c.name)} <span class="muted">from ${esc(c.locationName)}</span></div><button class="link" data-rm="${i}">Remove</button></div>`).join("")}</div>` : ""}
@@ -300,20 +307,25 @@ async function viewTrade(tradeId) {
 
 async function viewInventory() {
   app.innerHTML = header("#/admin/inventory") + `<h1>Inventory</h1><p class="sub">Live — updates as workers clock out.</p>
-    <div class="inline" style="margin:12px 0"><div><select id="tfilter"><option value="">All trades</option></select></div>
-    <label class="row" style="flex:0;border:none;padding:0;white-space:nowrap"><input type="checkbox" id="lowonly" style="width:auto" /> Low only</label></div>
+    <div class="inline" style="margin:12px 0">
+      <div><select id="tfilter"><option value="">All trades</option></select></div>
+      <div><select id="cfilter"><option value="">All categories</option></select></div>
+      <label class="row" style="flex:0;border:none;padding:0;white-space:nowrap"><input type="checkbox" id="lowonly" style="width:auto" /> Low only</label></div>
     <div id="invtable"></div>`;
-  const { data } = await sb.from("inventory_items").select("quantity_on_hand,material_id,location_id,materials(name,unit,phase,reorder_threshold,trades(name)),locations(name)").order("material_id");
-  let rows = (data || []).map((r) => ({ materialId: r.material_id, locationId: r.location_id, material: r.materials?.name || "—", unit: r.materials?.unit || "ea", phase: r.materials?.phase || "", trade: r.materials?.trades?.name || "—", location: r.locations?.name || "—", qty: Number(r.quantity_on_hand), reorder: Number(r.materials?.reorder_threshold ?? 0) }));
+  const { data } = await sb.from("inventory_items").select("quantity_on_hand,material_id,location_id,materials(name,unit,phase,category,reorder_threshold,trades(name)),locations(name)").order("material_id");
+  let rows = (data || []).map((r) => ({ materialId: r.material_id, locationId: r.location_id, material: r.materials?.name || "—", unit: r.materials?.unit || "ea", phase: r.materials?.phase || "", category: r.materials?.category || "", trade: r.materials?.trades?.name || "—", location: r.locations?.name || "—", qty: Number(r.quantity_on_hand), reorder: Number(r.materials?.reorder_threshold ?? 0) }));
+  const groupLabel = (r) => [r.phase, r.category].filter(Boolean).join(" · ") || "—";
   const tf = document.getElementById("tfilter");
   [...new Set(rows.map((r) => r.trade))].sort().forEach((t) => tf.insertAdjacentHTML("beforeend", `<option>${esc(t)}</option>`));
+  const cf = document.getElementById("cfilter");
+  [...new Set(rows.map((r) => r.category).filter(Boolean))].sort().forEach((c) => cf.insertAdjacentHTML("beforeend", `<option>${esc(c)}</option>`));
   const draw = () => {
-    const t = tf.value, low = document.getElementById("lowonly").checked;
-    const shown = rows.filter((r) => (!t || r.trade === t) && (!low || r.qty <= r.reorder)).sort((a, b) => a.trade.localeCompare(b.trade) || a.material.localeCompare(b.material));
-    document.getElementById("invtable").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Trade</th><th>Material</th><th>Phase</th><th>Location</th><th class="num">On hand</th></tr></thead>
-      <tbody>${shown.map((r) => `<tr class="${r.qty <= r.reorder ? "low" : ""}"><td class="muted">${esc(r.trade)}</td><td>${esc(r.material)}</td><td class="muted">${esc(r.phase || "—")}</td><td>${esc(r.location)}</td><td class="num ${r.qty <= r.reorder ? "low-val" : ""}">${fmt(r.qty)} ${esc(r.unit)}</td></tr>`).join("") || `<tr><td colspan="5" class="center muted">Nothing matches.</td></tr>`}</tbody></table></div>`;
+    const t = tf.value, c = cf.value, low = document.getElementById("lowonly").checked;
+    const shown = rows.filter((r) => (!t || r.trade === t) && (!c || r.category === c) && (!low || r.qty <= r.reorder)).sort((a, b) => a.trade.localeCompare(b.trade) || groupLabel(a).localeCompare(groupLabel(b)) || a.material.localeCompare(b.material));
+    document.getElementById("invtable").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Trade</th><th>Category</th><th>Material</th><th>Location</th><th class="num">On hand</th></tr></thead>
+      <tbody>${shown.map((r) => `<tr class="${r.qty <= r.reorder ? "low" : ""}"><td class="muted">${esc(r.trade)}</td><td class="muted">${esc(groupLabel(r))}</td><td>${esc(r.material)}</td><td>${esc(r.location)}</td><td class="num ${r.qty <= r.reorder ? "low-val" : ""}">${fmt(r.qty)} ${esc(r.unit)}</td></tr>`).join("") || `<tr><td colspan="5" class="center muted">Nothing matches.</td></tr>`}</tbody></table></div>`;
   };
-  tf.onchange = draw; document.getElementById("lowonly").onchange = draw; draw();
+  tf.onchange = draw; cf.onchange = draw; document.getElementById("lowonly").onchange = draw; draw();
   sb.channel("inv-live").on("postgres_changes", { event: "*", schema: "materials", table: "inventory_items" }, (p) => {
     const u = p.new; if (!u?.material_id) return;
     const row = rows.find((r) => r.materialId === u.material_id && r.locationId === u.location_id);
@@ -424,6 +436,7 @@ async function viewRequests() {
       </div>
     </div>`).join("") : `<div class="box muted">No ${status === "all" ? "" : status}${takeoffOnly ? " takeoff-shortfall" : ""} requests.</div>`;
   app.innerHTML = header("#/admin/requests") + `<h1>Requests</h1><p class="sub">Order worklist — everything management needs to place the order.</p>
+    <a href="#/request" style="display:inline-block;background:var(--ink);color:var(--paper-2);padding:10px 16px;border-radius:var(--radius);font-size:14px;font-weight:600;margin:10px 0">＋ New request</a>
     <nav class="tabs" style="margin:10px 0">${["open", "ordered", "fulfilled", "cancelled", "all"].map((t) => `<a href="#/admin/requests?status=${t}${takeoffOnly ? "&takeoff=1" : ""}" class="${t === status ? "active" : ""}">${t}</a>`).join("")}
       <a href="#/admin/requests?status=${status}${takeoffOnly ? "" : "&takeoff=1"}" class="${takeoffOnly ? "active" : ""}" style="margin-left:8px">⚠ takeoff shortfalls</a></nav>
     <div id="rq">${cards}</div>`;
