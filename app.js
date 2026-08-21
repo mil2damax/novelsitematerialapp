@@ -125,8 +125,7 @@ function header(active) {
   const tab = (href, label) => `<a href="${href}" class="${active === href ? "active" : ""}">${label}</a>`;
   let tabs = "";
   if (admin) {
-    tabs = [tab("#/", "Trades"), tab("#/admin/inventory", "Inventory"), tab("#/admin/requests", "Requests"),
-      tab("#/admin/deliveries", "Delivery"), tab("#/admin/activity", "Activity"), tab("#/admin/settings", "Settings")].join("");
+    tabs = [tab("#/", "Trades"), tab("#/admin/inventory", "Inventory"), tab("#/admin/requests", "Requests"), tab("#/admin", "Admin")].join("");
   } else {
     tabs = tab("#/request", "Request") + tab("#/account", "My PIN");
   }
@@ -137,7 +136,7 @@ function header(active) {
     </a>
     <nav class="tabs">${tabs}<a href="#/logout">Log out</a></nav>
   </header>
-  <div class="wholine">${esc(s?.name || "")} · ${esc(s?.role === "admin" ? "owner" : "field")}</div>`;
+  <div class="wholine">${esc(s?.name || "")} · ${esc(s?.role === "admin" ? "owner" : "sub")}</div>`;
 }
 
 // ---- Views -----------------------------------------------------------------
@@ -306,26 +305,44 @@ async function viewTrade(tradeId) {
 }
 
 async function viewInventory() {
-  app.innerHTML = header("#/admin/inventory") + `<h1>Inventory</h1><p class="sub">Live — updates as workers clock out.</p>
+  app.innerHTML = header("#/admin/inventory") + `<h1>Inventory</h1><p class="sub">Live — updates as materials are clocked out.</p>
     <div class="inline" style="margin:12px 0">
       <div><select id="tfilter"><option value="">All trades</option></select></div>
       <div><select id="cfilter"><option value="">All categories</option></select></div>
-      <label class="row" style="flex:0;border:none;padding:0;white-space:nowrap"><input type="checkbox" id="lowonly" style="width:auto" /> Low only</label></div>
-    <div id="invtable"></div>`;
-  const { data } = await sb.from("inventory_items").select("quantity_on_hand,material_id,location_id,materials(name,unit,phase,category,reorder_threshold,trades(name)),locations(name)").order("material_id");
-  let rows = (data || []).map((r) => ({ materialId: r.material_id, locationId: r.location_id, material: r.materials?.name || "—", unit: r.materials?.unit || "ea", phase: r.materials?.phase || "", category: r.materials?.category || "", trade: r.materials?.trades?.name || "—", location: r.locations?.name || "—", qty: Number(r.quantity_on_hand), reorder: Number(r.materials?.reorder_threshold ?? 0) }));
-  const groupLabel = (r) => [r.phase, r.category].filter(Boolean).join(" · ") || "—";
+    </div>
+    <div id="invlist" class="center muted">Loading…</div>`;
+  const { data } = await sb.from("inventory_items").select("quantity_on_hand,material_id,location_id,materials(name,unit,phase,category,reorder_threshold,trades(name)),locations(name)");
+  let rows = (data || []).map((r) => ({ materialId: r.material_id, locationId: r.location_id, material: r.materials?.name || "—", unit: r.materials?.unit || "ea", phase: r.materials?.phase || "", category: r.materials?.category || "Other", trade: r.materials?.trades?.name || "—", location: r.locations?.name || "—", qty: Number(r.quantity_on_hand), reorder: Number(r.materials?.reorder_threshold ?? 0) }));
   const tf = document.getElementById("tfilter");
   [...new Set(rows.map((r) => r.trade))].sort().forEach((t) => tf.insertAdjacentHTML("beforeend", `<option>${esc(t)}</option>`));
   const cf = document.getElementById("cfilter");
-  [...new Set(rows.map((r) => r.category).filter(Boolean))].sort().forEach((c) => cf.insertAdjacentHTML("beforeend", `<option>${esc(c)}</option>`));
+  [...new Set(rows.map((r) => r.category))].sort().forEach((c) => cf.insertAdjacentHTML("beforeend", `<option>${esc(c)}</option>`));
   const draw = () => {
-    const t = tf.value, c = cf.value, low = document.getElementById("lowonly").checked;
-    const shown = rows.filter((r) => (!t || r.trade === t) && (!c || r.category === c) && (!low || r.qty <= r.reorder)).sort((a, b) => a.trade.localeCompare(b.trade) || groupLabel(a).localeCompare(groupLabel(b)) || a.material.localeCompare(b.material));
-    document.getElementById("invtable").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Trade</th><th>Category</th><th>Material</th><th>Location</th><th class="num">On hand</th></tr></thead>
-      <tbody>${shown.map((r) => `<tr class="${r.qty <= r.reorder ? "low" : ""}"><td class="muted">${esc(r.trade)}</td><td class="muted">${esc(groupLabel(r))}</td><td>${esc(r.material)}</td><td>${esc(r.location)}</td><td class="num ${r.qty <= r.reorder ? "low-val" : ""}">${fmt(r.qty)} ${esc(r.unit)}</td></tr>`).join("") || `<tr><td colspan="5" class="center muted">Nothing matches.</td></tr>`}</tbody></table></div>`;
+    const t = tf.value, c = cf.value;
+    const shown = rows.filter((r) => (!t || r.trade === t) && (!c || r.category === c));
+    // one line per material (summed across locations)
+    const byMat = new Map();
+    for (const r of shown) {
+      const e = byMat.get(r.materialId) || { material: r.material, unit: r.unit, trade: r.trade, phase: r.phase, category: r.category, reorder: r.reorder, qty: 0, locs: [] };
+      e.qty += r.qty;
+      if (r.qty !== 0) e.locs.push({ name: r.location, qty: r.qty });
+      byMat.set(r.materialId, e);
+    }
+    const groups = new Map();
+    for (const m of byMat.values()) {
+      const key = [m.trade, m.phase, m.category].filter(Boolean).join(" · ");
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(m);
+    }
+    const sorted = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    document.getElementById("invlist").innerHTML = sorted.length
+      ? sorted.map(([label, ms]) => `<div class="cat-label">${esc(label)}</div><div class="list" style="margin-bottom:14px">${ms.sort((a, b) => a.material.localeCompare(b.material)).map((m) => {
+          const low = m.qty <= m.reorder;
+          return `<div class="row ${low ? "low" : ""}"><div style="min-width:0"><div class="name">${esc(m.material)}</div>${m.locs.length > 1 ? `<div class="meta">${m.locs.map((l) => `${esc(l.name)}: ${fmt(l.qty)}`).join(" · ")}</div>` : ""}</div><div class="${low ? "low-val" : ""}" style="font-weight:600;white-space:nowrap">${fmt(m.qty)} ${esc(m.unit)}</div></div>`;
+        }).join("")}</div>`).join("")
+      : `<div class="box muted">Nothing here yet.</div>`;
   };
-  tf.onchange = draw; cf.onchange = draw; document.getElementById("lowonly").onchange = draw; draw();
+  tf.onchange = draw; cf.onchange = draw; draw();
   sb.channel("inv-live").on("postgres_changes", { event: "*", schema: "materials", table: "inventory_items" }, (p) => {
     const u = p.new; if (!u?.material_id) return;
     const row = rows.find((r) => r.materialId === u.material_id && r.locationId === u.location_id);
@@ -365,7 +382,7 @@ async function viewRequestForm() {
         <input id="rq-photo" type="file" accept="image/*" capture="environment" />
         <div id="rq-preview"></div></div>
       <div class="inline">
-        <div class="grow2"><label>Lowe's link (optional)</label><input id="rq-link" type="url" inputmode="url" placeholder="https://lowes.com/…" /></div>
+        <div class="grow2"><label>Vendor link (optional)</label><input id="rq-link" type="url" inputmode="url" placeholder="Lowe's, Home Depot, supplier… any link" /></div>
         <div><label>SKU / item #</label><input id="rq-sku" placeholder="e.g. 2987584" /></div>
       </div>
       <div class="field" style="margin-top:12px"><label>Why is this needed?</label><textarea id="rq-why" placeholder="What it's for + where — e.g. Floor 3 rooms 301–320 rough-in"></textarea></div>
@@ -426,7 +443,7 @@ async function viewRequests() {
           <div class="meta">${esc(r.workers?.name || "—")}${r.trades?.name ? " · " + esc(r.trades.name) : ""} · ${new Date(r.created_at).toLocaleDateString()}</div>
           <div style="margin-top:6px;font-size:14px"><b>Why:</b> ${esc(r.why || "—")}</div>
           ${r.takeoff_short && r.takeoff_explain ? `<div style="font-size:14px;color:var(--brick)"><b>Shortfall:</b> ${esc(r.takeoff_explain)}</div>` : ""}
-          <div class="meta" style="margin-top:6px">${r.sku ? "SKU " + esc(r.sku) : ""}${r.lowes_link ? ` · <a href="${esc(r.lowes_link)}" target="_blank" rel="noopener">Lowe's link ↗</a>` : ""}</div>
+          <div class="meta" style="margin-top:6px">${r.sku ? "SKU " + esc(r.sku) : ""}${r.lowes_link ? ` · <a href="${esc(r.lowes_link)}" target="_blank" rel="noopener">Vendor link ↗</a>` : ""}</div>
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
@@ -444,7 +461,7 @@ async function viewRequests() {
 }
 
 async function viewActivity() {
-  app.innerHTML = header("#/admin/activity") + `<h1>Activity</h1><p class="sub">Clock-outs and deliveries.</p><div id="act">Loading…</div>`;
+  app.innerHTML = header("#/admin") + `<h1>Activity</h1><p class="sub">Clock-outs and deliveries.</p><div id="act">Loading…</div>`;
   const { clockouts, deliveries } = await apiCall("list_activity");
   const events = [
     ...clockouts.map((c) => ({ t: c.created_at, kind: "out", html: `<div class="name">${esc(c.workers?.name || "—")} took · <span class="muted">${esc(c.trades?.name || "")}</span></div><div class="meta">${(c.clockout_line_items || []).map((l) => `${fmt(l.quantity)} ${esc(l.materials?.unit || "")} ${esc(l.materials?.name || "")} (${esc(l.locations?.name || "")})`).join(" · ")}${c.notes ? " — “" + esc(c.notes) + "”" : ""}</div>` })),
@@ -457,28 +474,24 @@ async function viewDeliveries() {
   const batchId = new URLSearchParams(location.hash.split("?")[1] || "").get("batch");
   if (batchId) return viewImportBatch(batchId);
 
-  app.innerHTML = header("#/admin/deliveries") + `<h1>Deliveries</h1>
-    <p class="sub">Pulled from your delivery tracker. Received items land here to review, then publish to inventory.</p>
-    <div class="box"><b>How this works</b><p class="sub" style="margin-top:6px">When the tracker updates, ask Claude to “pull the latest Tru Durham tracker.” The received rows show up below as a pending batch. Review them, then Publish — that's the moment stock moves.</p></div>
-    <div id="batches" class="center muted">Loading…</div>`;
   const { batches } = await importCall("list_imports");
   const count = (b) => (b.import_lines && b.import_lines[0] ? b.import_lines[0].count : 0);
-  const pend = batches.filter((b) => b.status === "pending");
-  const done = batches.filter((b) => b.status !== "pending");
-  document.getElementById("batches").innerHTML = `
-    <h2>Pending review</h2>
-    ${pend.length ? `<div class="list">${pend.map((b) => `<a class="row" href="#/admin/deliveries?batch=${b.id}"><div><div class="name">${esc(b.label)}</div><div class="meta">${count(b)} items · staged ${new Date(b.created_at).toLocaleDateString()}</div></div><span class="badge amber">review →</span></a>`).join("")}</div>` : `<div class="box muted">Nothing pending — ask Claude to pull the tracker.</div>`}
-    ${done.length ? `<h2>History</h2><div class="list">${done.map((b) => `<div class="row"><div><div class="name">${esc(b.label)}</div><div class="meta">${count(b)} items${b.published_at ? " · " + new Date(b.published_at).toLocaleDateString() : ""}</div></div><span class="badge ${b.status === "published" ? "green" : "grey"}">${b.status}</span></div>`).join("")}</div>` : ""}`;
+  const published = batches.filter((b) => b.status === "published");
+  app.innerHTML = header("#/admin") + `<h1>Deliveries</h1>
+    <p class="sub">Received materials are pulled from your procurement folder (per trade) straight into inventory. History below.</p>
+    ${published.length
+      ? `<div class="list" style="margin-top:12px">${published.map((b) => `<a class="row" href="#/admin/deliveries?batch=${b.id}"><div><div class="name">${esc(b.label)}</div><div class="meta">${count(b)} items${b.published_at ? " · " + new Date(b.published_at).toLocaleDateString() : ""}${b.trades?.name ? " · " + esc(b.trades.name) : ""}</div></div><span class="badge green">added →</span></a>`).join("")}</div>`
+      : `<div class="box muted">No deliveries pulled in yet. When a tracker is confirmed, tell Claude and it pulls the received items into inventory.</div>`}`;
 }
 
 async function viewImportBatch(id) {
   const [{ batch, lines }, locations] = await Promise.all([importCall("get_import", { id }), readLocations()]);
-  if (!batch) { app.innerHTML = header("#/admin/deliveries") + `<div class="box">Batch not found.</div>`; return; }
+  if (!batch) { app.innerHTML = header("#/admin") + `<div class="box">Batch not found.</div>`; return; }
   const published = batch.status !== "pending";
 
   function render_() {
     const included = lines.filter((l) => l.include).length;
-    app.innerHTML = header("#/admin/deliveries") + `
+    app.innerHTML = header("#/admin") + `
       <a href="#/admin/deliveries" class="muted" style="font-size:12px">← Deliveries</a>
       <h1>${esc(batch.label)}</h1>
       <p class="sub">${esc(batch.trades?.name || "")} · ${lines.length} received line${lines.length === 1 ? "" : "s"} from ${esc(batch.source || "tracker")}. Uncheck anything you don't want, then publish.</p>
@@ -521,7 +534,7 @@ async function viewSettings() {
     readWorkers(),
   ]);
   const tOpts = trades.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
-  app.innerHTML = header("#/admin/settings") + `<h1>Settings</h1><p class="sub">Manage trades, locations, materials, and workers.</p>
+  app.innerHTML = header("#/admin") + `<h1>Settings</h1><p class="sub">Manage trades, locations, materials, and workers.</p>
     <h2>Trades</h2><div class="list">${trades.map((t) => `<div class="row"><span>${esc(t.name)}</span></div>`).join("")}</div>
     <div class="inline" style="margin-top:8px"><input id="t-name" placeholder="New trade" /><button class="ghost" data-add="add_trade">Add</button></div>
 
@@ -532,10 +545,10 @@ async function viewSettings() {
     <div class="inline" style="margin-top:8px"><select id="m-trade"><option value="">Trade…</option>${tOpts}</select><input id="m-name" placeholder="Material" /><input id="m-unit" placeholder="Unit" value="ea" style="flex:.5" />
     <select id="m-phase" style="flex:.8"><option value="">No phase</option><option>Rough-In</option><option>Trim</option></select><input id="m-reorder" type="number" min="0" placeholder="Reorder" value="0" style="flex:.6" /><button class="ghost" data-add="add_material">Add</button></div>
 
-    <h2>Workers</h2><div class="list">${workers.map((w) => `<div class="row"><div><span class="name" style="${!w.active ? "text-decoration:line-through;color:#94a3b8" : ""}">${esc(w.name)}</span> <span class="muted">· ${w.role === "admin" ? "owner" : "field"}${w.trades?.name ? " · " + esc(w.trades.name) : ""}</span></div>
+    <h2>Workers</h2><div class="list">${workers.map((w) => `<div class="row"><div><span class="name" style="${!w.active ? "text-decoration:line-through;color:#94a3b8" : ""}">${esc(w.name)}</span> <span class="muted">· ${w.role === "admin" ? "owner" : "sub"}${w.trades?.name ? " · " + esc(w.trades.name) : ""}</span></div>
       <div style="display:flex;gap:4px">${w.active ? `<button class="sm outline" data-rename="${w.id}" data-name="${esc(w.name)}">Rename</button><button class="sm outline" data-pin="${w.id}" data-name="${esc(w.name)}">Set PIN</button><button class="sm outline" data-deact="${w.id}">Deactivate</button>` : ""}</div></div>`).join("")}</div>
     <div class="inline" style="margin-top:8px"><input id="w-name" placeholder="Full name" /><select id="w-trade"><option value="">No trade (owner)</option>${tOpts}</select>
-    <select id="w-role" style="flex:.8"><option value="field_worker">Field worker</option><option value="admin">Owner</option></select><input id="w-pin" placeholder="PIN (4-6 digits)" inputmode="numeric" style="flex:.7" /><button class="ghost" data-add="add_worker">Add</button></div>
+    <select id="w-role" style="flex:.8"><option value="field_worker">Sub</option><option value="admin">Owner</option></select><input id="w-pin" placeholder="PIN (4-6 digits)" inputmode="numeric" style="flex:.7" /><button class="ghost" data-add="add_worker">Add</button></div>
     <div id="s-msg"></div>`;
 
   const val = (id) => document.getElementById(id).value;
@@ -550,6 +563,15 @@ async function viewSettings() {
   app.querySelectorAll("[data-deact]").forEach((b) => (b.onclick = () => run(() => apiCall("deactivate_worker", { id: b.dataset.deact }))));
   app.querySelectorAll("[data-rename]").forEach((b) => (b.onclick = () => { const n = prompt("New name for " + b.dataset.name + ":", b.dataset.name); if (n) run(() => apiCall("rename_worker", { id: b.dataset.rename, name: n })); }));
   app.querySelectorAll("[data-pin]").forEach((b) => (b.onclick = () => { const pin = prompt("New PIN for " + b.dataset.name + " (4-6 digits):"); if (pin) run(() => apiCall("set_pin", { id: b.dataset.pin, pin })); }));
+}
+
+async function viewAdminHub() {
+  app.innerHTML = header("#/admin") + `<h1>Admin</h1><p class="sub">Deliveries, activity, and settings.</p>
+    <div class="grid two" style="margin-top:16px">
+      <a class="card tap" href="#/admin/deliveries"><div><div class="title">Deliveries</div><div class="meta">Pulled from procurement — history</div></div><span class="muted">→</span></a>
+      <a class="card tap" href="#/admin/activity"><div><div class="title">Activity</div><div class="meta">Clock-outs &amp; deliveries</div></div><span class="muted">→</span></a>
+      <a class="card tap" href="#/admin/settings"><div><div class="title">Settings</div><div class="meta">Trades, locations, materials, workers</div></div><span class="muted">→</span></a>
+    </div>`;
 }
 
 async function viewAccount() {
@@ -568,12 +590,13 @@ async function render() {
   if (hash === "#/logout") { clearSession(); location.hash = "#/login"; return render(); }
   if (!validSession(s)) { if (hash !== "#/login") { location.hash = "#/login"; } await viewLogin(); return; }
   const path = hash.split("?")[0];
-  const adminOnly = path.startsWith("#/admin/");
+  const adminOnly = path === "#/admin" || path.startsWith("#/admin/");
   if (adminOnly && s.role !== "admin") { location.hash = "#/"; return render(); }
   try {
     if (path === "#/login" || path === "#/") return await viewHome();
     if (path === "#/request") return await viewRequestForm();
     if (path.startsWith("#/trade/")) return await viewTrade(path.split("/")[2]);
+    if (path === "#/admin") return await viewAdminHub();
     if (path === "#/admin/inventory") return await viewInventory();
     if (path === "#/admin/requests") return await viewRequests();
     if (path === "#/admin/activity") return await viewActivity();
