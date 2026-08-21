@@ -461,13 +461,37 @@ async function viewRequests() {
 }
 
 async function viewActivity() {
-  app.innerHTML = header("#/admin") + `<h1>Activity</h1><p class="sub">Clock-outs and deliveries.</p><div id="act">Loading…</div>`;
   const { clockouts, deliveries } = await apiCall("list_activity");
+  const when = (t) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const clip = (s, n = 90) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
   const events = [
-    ...clockouts.map((c) => ({ t: c.created_at, kind: "out", html: `<div class="name">${esc(c.workers?.name || "—")} took · <span class="muted">${esc(c.trades?.name || "")}</span></div><div class="meta">${(c.clockout_line_items || []).map((l) => `${fmt(l.quantity)} ${esc(l.materials?.unit || "")} ${esc(l.materials?.name || "")} (${esc(l.locations?.name || "")})`).join(" · ")}${c.notes ? " — “" + esc(c.notes) + "”" : ""}</div>` })),
-    ...deliveries.map((d) => ({ t: d.created_at, kind: "in", html: `<div class="name">Delivery · ${esc(d.source)} <span class="muted">${esc(d.trades?.name || "")}</span></div><div class="meta">${d.po_number ? "PO " + esc(d.po_number) + " · " : ""}${(d.delivery_line_items || []).map((l) => `${fmt(l.quantity)} ${esc(l.materials?.unit || "")} ${esc(l.materials?.name || "")} (${esc(l.locations?.name || "")})`).join(" · ")}</div>` })),
+    ...clockouts.map((c) => {
+      const items = c.clockout_line_items || [];
+      return { t: c.created_at, kind: "out",
+        title: `${c.workers?.name || "—"} took ${items.length} item${items.length === 1 ? "" : "s"}`,
+        trade: c.trades?.name || "",
+        detail: clip(items.map((l) => `${fmt(l.quantity)} ${l.materials?.name || ""}`).join(", ")),
+        note: c.notes || "" };
+    }),
+    ...deliveries.map((d) => {
+      const items = d.delivery_line_items || [];
+      return { t: d.created_at, kind: "in",
+        title: `Delivery — ${d.source}`,
+        trade: d.trades?.name || "",
+        detail: `${items.length} item${items.length === 1 ? "" : "s"} added`,
+        note: d.po_number ? "PO " + d.po_number : "" };
+    }),
   ].sort((a, b) => new Date(b.t) - new Date(a.t));
-  document.getElementById("act").innerHTML = events.length ? `<div class="list">${events.map((e) => `<div class="row"><div>${e.html}<div class="meta">${new Date(e.t).toLocaleString()}</div></div><span class="badge ${e.kind === "in" ? "green" : "grey"}">${e.kind === "in" ? "in" : "out"}</span></div>`).join("")}</div>` : `<div class="box muted">No activity yet.</div>`;
+  app.innerHTML = header("#/admin") + `<h1>Activity</h1><p class="sub">Who took what, and what came in.</p>
+    ${events.length ? `<div class="list" style="margin-top:12px">${events.map((e) => `
+      <div class="row">
+        <div style="min-width:0">
+          <div class="name">${esc(e.title)}${e.trade ? ` <span class="muted" style="font-weight:400">· ${esc(e.trade)}</span>` : ""}</div>
+          <div class="meta">${esc(e.detail)}${e.note ? ` · ${esc(e.note)}` : ""}</div>
+          <div class="meta">${esc(when(e.t))}</div>
+        </div>
+        <span class="badge ${e.kind === "in" ? "green" : "grey"}">${e.kind === "in" ? "in" : "out"}</span>
+      </div>`).join("")}</div>` : `<div class="box muted">No activity yet.</div>`}`;
 }
 
 async function viewDeliveries() {
