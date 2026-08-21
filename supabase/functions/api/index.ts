@@ -12,6 +12,8 @@ Deno.serve(async (req) => {
   const session = await verifyToken(sessionHeader(req));
   if (!session) return json({ error: "unauthorized" }, 401);
   const isAdmin = session.role === "admin";
+  // Owner or superintendent: full site oversight (all trades). Settings stay owner-only.
+  const elevated = isAdmin || session.role === "superintendent";
 
   let p: any;
   try {
@@ -28,7 +30,7 @@ Deno.serve(async (req) => {
         const lines = Array.isArray(p.lines) ? p.lines : [];
         if (!lines.length) return json({ error: "No items." }, 400);
         // A field worker can only clock out against their own trade.
-        if (!isAdmin && session.tradeId && p.tradeId !== session.tradeId) return forbid();
+        if (!elevated && session.tradeId && p.tradeId !== session.tradeId) return forbid();
         const { data, error } = await db.rpc("clock_out_materials", {
           p_worker_id: session.sub,
           p_trade_id: p.tradeId,
@@ -59,7 +61,7 @@ Deno.serve(async (req) => {
       }
 
       case "list_activity": {
-        if (!isAdmin) return forbid();
+        if (!elevated) return forbid();
         const { data: clockouts } = await db
           .from("clockouts")
           .select("id, notes, created_at, workers(name), trades(name), clockout_line_items(quantity, materials(name, unit), locations(name))")
@@ -153,7 +155,7 @@ Deno.serve(async (req) => {
         if (!isAdmin) return forbid();
         const name = String(p.name || "").trim();
         if (!name || !/^\d{4,6}$/.test(String(p.pin || ""))) return json({ error: "Name and a 4-6 digit PIN required." }, 400);
-        const role = p.role === "admin" ? "admin" : "field_worker";
+        const role = p.role === "admin" ? "admin" : p.role === "superintendent" ? "superintendent" : "field_worker";
         const pin_hash = bcrypt.hashSync(String(p.pin), 10);
         const { error } = await db.from("workers").insert({ name, trade_id: p.tradeId || null, role, pin_hash });
         if (error) return json({ error: error.message }, 400);

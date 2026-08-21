@@ -7,7 +7,11 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   const session = await verifyToken(sessionHeader(req));
-  if (!session || session.role !== "admin") return json({ error: "forbidden" }, 403);
+  if (!session) return json({ error: "unauthorized" }, 401);
+  const isAdmin = session.role === "admin";
+  // Superintendent may view delivery history; only the owner pulls/publishes.
+  if (!isAdmin && session.role !== "superintendent") return json({ error: "forbidden" }, 403);
+  const ownerOnly = () => json({ error: "forbidden" }, 403);
 
   let p: any;
   try { p = await req.json(); } catch { return json({ error: "bad json" }, 400); }
@@ -16,6 +20,7 @@ Deno.serve(async (req) => {
   try {
     switch (p.action) {
       case "stage_import": {
+        if (!isAdmin) return ownerOnly();
         const lines = Array.isArray(p.lines) ? p.lines : [];
         if (!lines.length) return json({ error: "No lines to stage." }, 400);
         const { data: batch, error } = await db
@@ -48,6 +53,7 @@ Deno.serve(async (req) => {
       }
 
       case "set_import_line": {
+        if (!isAdmin) return ownerOnly();
         const patch: any = {};
         if (p.include != null) patch.include = !!p.include;
         if (p.quantity != null) patch.quantity = Number(p.quantity);
@@ -59,6 +65,7 @@ Deno.serve(async (req) => {
       }
 
       case "publish_import": {
+        if (!isAdmin) return ownerOnly();
         if (!p.id || !p.locationId) return json({ error: "Pick a location to store these at." }, 400);
         const { data, error } = await db.rpc("publish_import_batch", { p_batch_id: p.id, p_location_id: p.locationId });
         if (error) return json({ error: error.message }, 400);
@@ -66,6 +73,7 @@ Deno.serve(async (req) => {
       }
 
       case "discard_import": {
+        if (!isAdmin) return ownerOnly();
         const { error } = await db.from("import_batches").update({ status: "discarded" }).eq("id", p.id);
         if (error) return json({ error: error.message }, 400);
         return json({ ok: true });

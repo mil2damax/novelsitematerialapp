@@ -121,10 +121,10 @@ async function updateNet() {
 // ---- Header ----------------------------------------------------------------
 function header(active) {
   const s = getSession();
-  const admin = s?.role === "admin";
+  const elevated = s?.role === "admin" || s?.role === "superintendent";
   const tab = (href, label) => `<a href="${href}" class="${active === href ? "active" : ""}">${label}</a>`;
   let tabs = "";
-  if (admin) {
+  if (elevated) {
     tabs = [tab("#/", "Trades"), tab("#/admin/inventory", "Inventory"), tab("#/admin/requests", "Requests"), tab("#/admin", "Admin")].join("");
   } else {
     tabs = tab("#/request", "Request") + tab("#/account", "My PIN");
@@ -136,7 +136,7 @@ function header(active) {
     </a>
     <nav class="tabs">${tabs}<a href="#/logout">Log out</a></nav>
   </header>
-  <div class="wholine">${esc(s?.name || "")} · ${esc(s?.role === "admin" ? "owner" : "sub")}</div>`;
+  <div class="wholine">${esc(s?.name || "")} · ${esc(s?.role === "admin" ? "owner" : s?.role === "superintendent" ? "super" : "sub")}</div>`;
 }
 
 // ---- Views -----------------------------------------------------------------
@@ -179,8 +179,9 @@ async function viewLogin() {
 
 async function viewHome() {
   const s = getSession();
-  // Field workers are scoped to their own trade — go straight there.
-  if (s.role !== "admin") {
+  // Subs are scoped to their own trade — go straight there. Owners and
+  // superintendents see the whole site.
+  if (s.role !== "admin" && s.role !== "superintendent") {
     if (s.tradeId) { location.hash = "#/trade/" + s.tradeId; return; }
     app.innerHTML = header("#/") + `<div class="box">You're not assigned to a trade yet. Ask an owner to set your trade in Settings.</div>`;
     return;
@@ -203,7 +204,7 @@ async function viewHome() {
 
 async function viewTrade(tradeId) {
   const s = getSession();
-  if (s.role !== "admin" && s.tradeId !== tradeId) { toast("You can only access your own trade."); location.hash = "#/"; return; }
+  if (s.role !== "admin" && s.role !== "superintendent" && s.tradeId !== tradeId) { toast("You can only access your own trade."); location.hash = "#/"; return; }
   const trade = await readTrade(tradeId);
   if (!trade) { app.innerHTML = header("#/") + `<div class="box">Trade not found.</div>`; return; }
   const materials = await readMaterialsWithStock(tradeId);
@@ -569,10 +570,10 @@ async function viewSettings() {
     <div class="inline" style="margin-top:8px"><select id="m-trade"><option value="">Trade…</option>${tOpts}</select><input id="m-name" placeholder="Material" /><input id="m-unit" placeholder="Unit" value="ea" style="flex:.5" />
     <select id="m-phase" style="flex:.8"><option value="">No phase</option><option>Rough-In</option><option>Trim</option></select><input id="m-reorder" type="number" min="0" placeholder="Reorder" value="0" style="flex:.6" /><button class="ghost" data-add="add_material">Add</button></div>
 
-    <h2>Workers</h2><div class="list">${workers.map((w) => `<div class="row"><div><span class="name" style="${!w.active ? "text-decoration:line-through;color:#94a3b8" : ""}">${esc(w.name)}</span> <span class="muted">· ${w.role === "admin" ? "owner" : "sub"}${w.trades?.name ? " · " + esc(w.trades.name) : ""}</span></div>
+    <h2>Workers</h2><div class="list">${workers.map((w) => `<div class="row"><div><span class="name" style="${!w.active ? "text-decoration:line-through;color:#94a3b8" : ""}">${esc(w.name)}</span> <span class="muted">· ${w.role === "admin" ? "owner" : w.role === "superintendent" ? "super" : "sub"}${w.trades?.name ? " · " + esc(w.trades.name) : ""}</span></div>
       <div style="display:flex;gap:4px">${w.active ? `<button class="sm outline" data-rename="${w.id}" data-name="${esc(w.name)}">Rename</button><button class="sm outline" data-pin="${w.id}" data-name="${esc(w.name)}">Set PIN</button><button class="sm outline" data-deact="${w.id}">Deactivate</button>` : ""}</div></div>`).join("")}</div>
     <div class="inline" style="margin-top:8px"><input id="w-name" placeholder="Full name" /><select id="w-trade"><option value="">No trade (owner)</option>${tOpts}</select>
-    <select id="w-role" style="flex:.8"><option value="field_worker">Sub</option><option value="admin">Owner</option></select><input id="w-pin" placeholder="PIN (4-6 digits)" inputmode="numeric" style="flex:.7" /><button class="ghost" data-add="add_worker">Add</button></div>
+    <select id="w-role" style="flex:.8"><option value="field_worker">Sub</option><option value="superintendent">Superintendent</option><option value="admin">Owner</option></select><input id="w-pin" placeholder="PIN (4-6 digits)" inputmode="numeric" style="flex:.7" /><button class="ghost" data-add="add_worker">Add</button></div>
     <div id="s-msg"></div>`;
 
   const val = (id) => document.getElementById(id).value;
@@ -590,11 +591,12 @@ async function viewSettings() {
 }
 
 async function viewAdminHub() {
-  app.innerHTML = header("#/admin") + `<h1>Admin</h1><p class="sub">Deliveries, activity, and settings.</p>
+  const isAdmin = getSession()?.role === "admin";
+  app.innerHTML = header("#/admin") + `<h1>Admin</h1><p class="sub">Deliveries, activity${isAdmin ? ", and settings" : ""}.</p>
     <div class="grid two" style="margin-top:16px">
       <a class="card tap" href="#/admin/deliveries"><div><div class="title">Deliveries</div><div class="meta">Pulled from procurement — history</div></div><span class="muted">→</span></a>
       <a class="card tap" href="#/admin/activity"><div><div class="title">Activity</div><div class="meta">Clock-outs &amp; deliveries</div></div><span class="muted">→</span></a>
-      <a class="card tap" href="#/admin/settings"><div><div class="title">Settings</div><div class="meta">Trades, locations, materials, workers</div></div><span class="muted">→</span></a>
+      ${isAdmin ? `<a class="card tap" href="#/admin/settings"><div><div class="title">Settings</div><div class="meta">Trades, locations, materials, workers</div></div><span class="muted">→</span></a>` : ""}
     </div>`;
 }
 
@@ -614,8 +616,11 @@ async function render() {
   if (hash === "#/logout") { clearSession(); location.hash = "#/login"; return render(); }
   if (!validSession(s)) { if (hash !== "#/login") { location.hash = "#/login"; } await viewLogin(); return; }
   const path = hash.split("?")[0];
-  const adminOnly = path === "#/admin" || path.startsWith("#/admin/");
-  if (adminOnly && s.role !== "admin") { location.hash = "#/"; return render(); }
+  const elevated = s.role === "admin" || s.role === "superintendent";
+  const adminArea = path === "#/admin" || path.startsWith("#/admin/");
+  if (adminArea && !elevated) { location.hash = "#/"; return render(); }
+  // Settings stay owner-only, even for superintendents.
+  if (path === "#/admin/settings" && s.role !== "admin") { location.hash = "#/admin"; return render(); }
   try {
     if (path === "#/login" || path === "#/") return await viewHome();
     if (path === "#/request") return await viewRequestForm();

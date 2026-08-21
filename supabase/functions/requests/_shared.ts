@@ -59,7 +59,7 @@ async function hmacKey(): Promise<CryptoKey> {
   );
 }
 
-export type Session = { sub: string; name: string; role: "admin" | "field_worker"; tradeId: string | null; exp: number };
+export type Session = { sub: string; name: string; role: "admin" | "superintendent" | "field_worker"; tradeId: string | null; exp: number };
 
 export async function signToken(payload: Session): Promise<string> {
   const body = b64url(encoder.encode(JSON.stringify(payload)));

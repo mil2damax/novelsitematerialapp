@@ -8,7 +8,7 @@ Deno.serve(async (req) => {
 
   const session = await verifyToken(sessionHeader(req));
   if (!session) return json({ error: "unauthorized" }, 401);
-  const isAdmin = session.role === "admin";
+  const elevated = session.role === "admin" || session.role === "superintendent";
 
   let p: any;
   try { p = await req.json(); } catch { return json({ error: "bad json" }, 400); }
@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       }
 
       case "list_requests": {
-        if (!isAdmin) return json({ error: "forbidden" }, 403);
+        if (!elevated) return json({ error: "forbidden" }, 403);
         let q = db.from("material_requests")
           .select("id, material_name, quantity, why, lowes_link, sku, takeoff_short, takeoff_explain, photo_url, status, created_at, workers!worker_id(name), trades(name)")
           .order("created_at", { ascending: false });
@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
       }
 
       case "set_request_status": {
-        if (!isAdmin) return json({ error: "forbidden" }, 403);
+        if (!elevated) return json({ error: "forbidden" }, 403);
         const allowed = ["open", "ordered", "fulfilled", "cancelled"];
         if (!p.id || !allowed.includes(p.status)) return json({ error: "bad" }, 400);
         const resolved = p.status === "fulfilled" || p.status === "cancelled";

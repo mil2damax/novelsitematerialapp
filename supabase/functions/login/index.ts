@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
     const session: Session = {
       sub: worker.id,
       name: worker.name,
-      role: worker.role === "admin" ? "admin" : "field_worker",
+      role: worker.role === "admin" ? "admin" : worker.role === "superintendent" ? "superintendent" : "field_worker",
       tradeId: worker.trade_id,
       exp: Date.now() + 12 * 60 * 60 * 1000, // 12-hour shift session
     };
