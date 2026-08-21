@@ -193,7 +193,7 @@ async function viewHome() {
   const onHand = new Map();
   for (const r of inv) onHand.set(r.material_id, (onHand.get(r.material_id) || 0) + Number(r.quantity_on_hand));
   const stat = new Map();
-  for (const m of materials) { const st = stat.get(m.trade_id) || { total: 0, low: 0 }; st.total++; if ((onHand.get(m.id) || 0) <= Number(m.reorder_threshold)) st.low++; stat.set(m.trade_id, st); }
+  for (const m of materials) { const st = stat.get(m.trade_id) || { total: 0, low: 0 }; st.total++; const rt = Number(m.reorder_threshold); if (rt > 0 && (onHand.get(m.id) || 0) <= rt) st.low++; stat.set(m.trade_id, st); }
   app.innerHTML = header("#/") + `<h1>Trades</h1><p class="sub">Pick a trade to see its materials, stock, and locations — or clock materials out.</p>
     <div class="grid two" style="margin-top:16px">${trades.map((t) => {
       const st = stat.get(t.id) || { total: 0, low: 0 };
@@ -214,7 +214,7 @@ async function viewTrade(tradeId) {
   function render_() {
     const matRow = (m) => {
       const total = m.locations.reduce((a, l) => a + l.qty, 0);
-      const low = total <= Number(m.reorder_threshold);
+      const low = Number(m.reorder_threshold) > 0 && total <= Number(m.reorder_threshold);
       return `<div class="row ${low ? "low" : ""}">
         <div><div class="name">${esc(m.name)}</div><div class="meta">${m.locations.length ? m.locations.map((l) => `${esc(l.name)}: ${fmt(l.qty)} ${esc(m.unit)}`).join(" · ") : "No stock recorded"}</div></div>
         <div style="text-align:right"><div class="${low ? "low-val" : ""}" style="font-weight:600">${fmt(total)} ${esc(m.unit)}</div>
@@ -337,7 +337,7 @@ async function viewInventory() {
     const sorted = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     document.getElementById("invlist").innerHTML = sorted.length
       ? sorted.map(([label, ms]) => `<div class="cat-label">${esc(label)}</div><div class="list" style="margin-bottom:14px">${ms.sort((a, b) => a.material.localeCompare(b.material)).map((m) => {
-          const low = m.qty <= m.reorder;
+          const low = m.reorder > 0 && m.qty <= m.reorder;
           return `<div class="row ${low ? "low" : ""}"><div style="min-width:0"><div class="name">${esc(m.material)}</div>${m.locs.length > 1 ? `<div class="meta">${m.locs.map((l) => `${esc(l.name)}: ${fmt(l.qty)}`).join(" · ")}</div>` : ""}</div><div class="${low ? "low-val" : ""}" style="font-weight:600;white-space:nowrap">${fmt(m.qty)} ${esc(m.unit)}</div></div>`;
         }).join("")}</div>`).join("")
       : `<div class="box muted">Nothing here yet.</div>`;
