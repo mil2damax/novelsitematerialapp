@@ -69,7 +69,8 @@ header {
 .wm-lines { display: flex; flex-direction: column; line-height: 1.15; }
 .wm-eyebrow { font-family: var(--mono); font-size: 9.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--brass-dark); }
 .wm-title { font-family: var(--serif); font-weight: 600; font-size: 18px; color: var(--ink); }
-.wholine { font-family: var(--mono); font-size: 12px; color: var(--stone); letter-spacing: .04em; margin: 0 0 14px; }
+.jobbar { font-family: var(--serif); font-weight: 600; font-size: 18px; color: var(--ink); border-left: 3px solid var(--brass); padding-left: 11px; margin: 2px 0 4px; }
+.wholine { font-family: var(--mono); font-size: 12px; color: var(--stone); letter-spacing: .04em; margin: 0 0 16px; padding-left: 11px; }
 
 nav.tabs {
   display: flex; gap: 5px; align-items: center; flex-wrap: wrap; justify-content: flex-end;

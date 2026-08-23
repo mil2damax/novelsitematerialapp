@@ -11,6 +11,10 @@ const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF0aWN2ZGZjYW51cHRhZnhydWV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNjgwOTMsImV4cCI6MjEwMjg0NDA5M30.RdDv1Lkf9_cg0NOeNR51ouCtm8j62kLNjXvSK95LSY4";
 const FN = SUPABASE_URL + "/functions/v1";
 
+// Current job site. One site for now; when a second job starts we'll make this
+// a per-site selection instead of a constant.
+const SITE_NAME = "Tru Durham (TSR)";
+
 const sb = createClient(SUPABASE_URL, ANON_KEY, { db: { schema: "materials" } });
 const app = document.getElementById("app");
 
@@ -136,6 +140,7 @@ function header(active) {
     </a>
     <nav class="tabs">${tabs}<a href="#/logout">Log out</a></nav>
   </header>
+  <div class="jobbar">${esc(SITE_NAME)}</div>
   <div class="wholine">${esc(s?.name || "")} · ${esc(s?.role === "admin" ? "owner" : s?.role === "superintendent" ? "super" : "sub")}</div>`;
 }
 
