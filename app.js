@@ -203,7 +203,7 @@ async function viewHome() {
   app.innerHTML = header("#/") + `<h1>Trades</h1><p class="sub">Pick a trade to see its materials, stock, and locations — or clock materials out.</p>
     <div class="grid two" style="margin-top:16px">${trades.map((t) => {
       const st = stat.get(t.id) || { total: 0, low: 0 };
-      return `<a class="card tap" href="#/trade/${t.id}"><div><div class="title">${esc(t.name)}</div><div class="meta">${st.total} material${st.total === 1 ? "" : "s"}</div></div>${st.low ? `<span class="badge amber">${st.low} low</span>` : `<span class="muted">→</span>`}</div></a>`;
+      return `<a class="card tap" href="#/trade/${t.id}"><div><div class="title">${esc(t.name)}</div><div class="meta">${st.total} material${st.total === 1 ? "" : "s"}</div></div>${st.low ? `<span class="badge amber">${st.low} low</span>` : `<span class="muted">→</span>`}</a>`;
     }).join("")}</div>`;
 }
 
