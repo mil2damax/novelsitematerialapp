@@ -157,7 +157,6 @@ async function viewLogin() {
     <div class="field"><label>PIN</label><input id="pin" type="password" inputmode="numeric" autocomplete="off" /></div>
     <div id="err"></div>
     <button class="block" id="go">Clock in</button>
-    <p class="muted" style="font-size:12px;margin-top:16px">First time? Owners "Milan" and "Co-Owner" start at PIN 0000 — change them in Settings.</p>
   </div>`;
   const go = document.getElementById("go");
   const submit = async () => {
