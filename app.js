@@ -213,9 +213,6 @@ async function viewTrade(tradeId) {
   if (!trade) { app.innerHTML = header("#/") + `<div class="box">Trade not found.</div>`; return; }
   const materials = await readMaterialsWithStock(tradeId);
 
-  const cart = []; // { materialId, name, unit, locationId, locationName, qty }
-  const cartQtyFor = (mid, lid) => cart.filter((c) => c.materialId === mid && c.locationId === lid).reduce((a, c) => a + c.qty, 0);
-
   function render_() {
     const matRow = (m) => {
       const total = m.locations.reduce((a, l) => a + l.qty, 0);
@@ -237,16 +234,11 @@ async function viewTrade(tradeId) {
     const backTab = s.role === "admin" ? "#/" : null;
     app.innerHTML = header(backTab || "#/") + `
       ${backTab ? `<a href="#/" class="muted" style="font-size:12px">← All trades</a>` : ""}
-      <h1>${esc(trade.name)}</h1><p class="sub">Tap a material to take some. You can't take more than what's on hand.</p>
+      <h1>${esc(trade.name)}</h1><p class="sub">Tap a material, pick how many, and it's clocked out. You can't take more than what's on hand.</p>
       ${groups.map((g) => `<h2>${esc(g.label)}</h2>${g.cats.map((c) => `${(g.cats.length > 1 || c.name !== "General") ? `<div class="cat-label">${esc(c.name)}</div>` : ""}<div class="list" style="margin-bottom:14px">${c.items.map(matRow).join("")}</div>`).join("")}`).join("") || `<div class="box">No materials set up for this trade yet.</div>`}
-      ${cart.length ? `<div class="box"><b>Taking (${cart.length})</b>${cart.map((c, i) => `<div class="row"><div>${fmt(c.qty)} ${esc(c.unit)} · ${esc(c.name)} <span class="muted">from ${esc(c.locationName)}</span></div><button class="link" data-rm="${i}">Remove</button></div>`).join("")}</div>` : ""}
-      <div id="takepanel"></div>
-      <div id="msg"></div>
-      <div class="cart-bar"><button class="block" id="submit" ${cart.length ? "" : "disabled"}>Submit clock-out (${cart.length} item${cart.length === 1 ? "" : "s"})</button></div>`;
+      <div id="takepanel"></div>`;
 
     app.querySelectorAll("[data-take]").forEach((b) => (b.onclick = () => openTake(b.dataset.take)));
-    app.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = () => { cart.splice(Number(b.dataset.rm), 1); render_(); }));
-    document.getElementById("submit").onclick = submit;
   }
 
   function openTake(mid) {
@@ -265,8 +257,8 @@ async function viewTrade(tradeId) {
       panel.innerHTML = `<div class="sheet-backdrop" id="tk-sheet"><div class="sheet">${sheetHead}<div class="box amber" style="margin-top:2px">No stock or location on record for this yet. Use “Request” once an owner adds a location.</div></div></div>`;
       wireClose(); return;
     }
-    // How many are still available at a location (on hand minus what's already in the cart).
-    const availAt = (lid) => Math.max(0, (m.locations.find((l) => l.locationId === lid)?.qty || 0) - cartQtyFor(m.id, lid));
+    // How many are on hand at a location.
+    const availAt = (lid) => Math.max(0, m.locations.find((l) => l.locationId === lid)?.qty || 0);
     panel.innerHTML = `<div class="sheet-backdrop" id="tk-sheet"><div class="sheet" role="dialog" aria-modal="true">${sheetHead}
       <div><label>From location</label><select id="tk-loc">${m.locations.map((l) => `<option value="${l.locationId}">${esc(l.name)} (${fmt(l.qty)} ${esc(m.unit)})</option>`).join("")}</select></div>
       <div style="margin-top:12px"><label>Qty (${esc(m.unit)})</label>
@@ -277,7 +269,7 @@ async function viewTrade(tradeId) {
         </div>
         <button type="button" class="step-max" id="tk-max">Take max on hand (<span id="tk-maxn">${fmt(availAt(m.locations[0].locationId))}</span>)</button>
       </div>
-      <div style="margin-top:16px"><button class="block" id="tk-add">Add to clock-out</button></div>
+      <div style="margin-top:16px"><button class="block" id="tk-add">Clock out</button></div>
       <div id="tk-msg"></div><div id="reqpanel"></div></div></div>`;
     wireClose();
 
@@ -319,16 +311,32 @@ async function viewTrade(tradeId) {
     maxEl.onclick = () => setQty(curMax());
     sync();
 
-    document.getElementById("tk-add").onclick = () => {
+    // One tap records this item straight away — no separate submit step.
+    document.getElementById("tk-add").onclick = async () => {
       const lid = locEl.value;
       const loc = m.locations.find((l) => l.locationId === lid);
       const qty = Number(qtyEl.value);
       const msg = document.getElementById("tk-msg");
+      const btn = document.getElementById("tk-add");
       if (!qty || qty <= 0) { msg.innerHTML = `<div class="notice error">Enter a quantity above 0.</div>`; return; }
-      const avail = loc.qty - cartQtyFor(m.id, lid);
-      if (qty > avail) { msg.innerHTML = `<div class="notice error">Only ${fmt(Math.max(avail, 0))} ${esc(m.unit)} on hand at ${esc(loc.name)}.</div>`; openRequest(m, loc, Math.max(qty - Math.max(avail, 0), 1)); return; }
-      cart.push({ materialId: m.id, name: m.name, unit: m.unit, locationId: lid, locationName: loc.name, qty });
-      render_();
+      if (qty > loc.qty) { msg.innerHTML = `<div class="notice error">Only ${fmt(Math.max(loc.qty, 0))} ${esc(m.unit)} on hand at ${esc(loc.name)}.</div>`; openRequest(m, loc, Math.max(qty - Math.max(loc.qty, 0), 1)); return; }
+      btn.disabled = true; btn.textContent = "Clocking out…";
+      const clientUuid = crypto.randomUUID();
+      const lines = [{ materialId: m.id, locationId: lid, quantity: qty }];
+      const finish = (offline) => {
+        loc.qty = Math.max(0, loc.qty - qty); // reflect the take on the trade list right away
+        render_(); // rebuilds the page, which also closes the sheet
+        toast(offline ? `Saved offline · ${fmt(qty)} ${esc(m.unit)} ${esc(m.name)}` : `Clocked out ${fmt(qty)} ${esc(m.unit)} · ${esc(m.name)}`);
+      };
+      if (!navigator.onLine) { await queuePut({ clientUuid, tradeId, notes: "", lines, createdAt: Date.now() }); finish(true); updateNet(); return; }
+      try {
+        const r = await apiCall("clock_out", { tradeId, notes: "", lines, clientUuid });
+        if (r.ok) finish(false); else { btn.disabled = false; btn.textContent = "Clock out"; }
+      } catch (e) {
+        if (e.code === "insufficient_stock") { msg.innerHTML = `<div class="notice error">Someone took some first — refresh to see current stock.</div>`; btn.disabled = false; btn.textContent = "Clock out"; }
+        else if (e.status) { msg.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = "Clock out"; }
+        else { await queuePut({ clientUuid, tradeId, notes: "", lines, createdAt: Date.now() }); finish(true); updateNet(); } // network drop
+      }
     };
   }
 
@@ -338,30 +346,6 @@ async function viewTrade(tradeId) {
       <div class="spacer"></div><button class="amber" id="rq-go">Request ${fmt(qty)} ${esc(m.unit)} →</button> <button class="link" id="rq-cancel">Cancel</button></div>`;
     document.getElementById("rq-cancel").onclick = () => (panel.innerHTML = "");
     document.getElementById("rq-go").onclick = () => { location.hash = `#/request?item=${encodeURIComponent(m.name)}&qty=${qty}`; render(); };
-  }
-
-  async function submit() {
-    if (!cart.length) return;
-    const btn = document.getElementById("submit"); btn.disabled = true; btn.textContent = "Submitting…";
-    const clientUuid = crypto.randomUUID();
-    const lines = cart.map((c) => ({ materialId: c.materialId, locationId: c.locationId, quantity: c.qty }));
-    const done = (offline) => {
-      app.innerHTML = header("#/") + `<div class="box ${offline ? "" : "green"}"><h2 style="margin-top:0">${offline ? "Saved offline ✓" : "Recorded ✓"}</h2>
-        <p>${offline ? "Saved on this device — it'll sync when you're back online." : "Clock-out recorded for " + esc(getSession().name) + "."}</p>
-        ${cart.map((c) => `<div class="row"><div>${fmt(c.qty)} ${esc(c.unit)} · ${esc(c.name)} <span class="muted">from ${esc(c.locationName)}</span></div></div>`).join("")}
-        <div class="spacer"></div><button href="#" onclick="location.hash='#/trade/${tradeId}';location.reload()" id="again">Clock out more</button></div>`;
-      document.getElementById("again").onclick = () => { location.hash = "#/trade/" + tradeId; render(); };
-      updateNet();
-    };
-    if (!navigator.onLine) { await queuePut({ clientUuid, tradeId, notes: "", lines, createdAt: Date.now() }); done(true); return; }
-    try {
-      const r = await apiCall("clock_out", { tradeId, notes: "", lines, clientUuid });
-      if (r.ok) done(false);
-    } catch (e) {
-      if (e.code === "insufficient_stock") { document.getElementById("msg").innerHTML = `<div class="notice error">Someone took some first — refresh to see current stock.</div>`; btn.disabled = false; btn.textContent = `Submit clock-out (${cart.length})`; }
-      else if (e.status) { document.getElementById("msg").innerHTML = `<div class="notice error">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = `Submit clock-out (${cart.length})`; }
-      else { await queuePut({ clientUuid, tradeId, notes: "", lines, createdAt: Date.now() }); done(true); } // network drop
-    }
   }
 
   render_();
