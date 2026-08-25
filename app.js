@@ -255,16 +255,63 @@ async function viewTrade(tradeId) {
     const panel = document.getElementById("takepanel");
     document.getElementById("reqpanel").innerHTML = "";
     if (!m.locations.length) { panel.innerHTML = `<div class="box amber">No stock/location on record for ${esc(m.name)} yet. Use “Request” once an owner adds a location.</div>`; return; }
+    // How many are still available at a location (on hand minus what's already in the cart).
+    const availAt = (lid) => Math.max(0, (m.locations.find((l) => l.locationId === lid)?.qty || 0) - cartQtyFor(m.id, lid));
     panel.innerHTML = `<div class="box"><b>${esc(m.name)}</b>
-      <div class="inline" style="margin-top:10px">
-        <div class="grow2"><label>From location</label><select id="tk-loc">${m.locations.map((l) => `<option value="${l.locationId}">${esc(l.name)} (${fmt(l.qty)} ${esc(m.unit)})</option>`).join("")}</select></div>
-        <div><label>Qty (${esc(m.unit)})</label><input id="tk-qty" type="number" min="0" step="any" value="1" /></div>
-        <div style="flex:0"><label>&nbsp;</label><button id="tk-add">Add</button></div>
-      </div><div id="tk-msg"></div></div>`;
+      <div style="margin-top:10px"><label>From location</label><select id="tk-loc">${m.locations.map((l) => `<option value="${l.locationId}">${esc(l.name)} (${fmt(l.qty)} ${esc(m.unit)})</option>`).join("")}</select></div>
+      <div style="margin-top:12px"><label>Qty (${esc(m.unit)})</label>
+        <div class="stepper">
+          <button type="button" class="step" id="tk-minus" aria-label="Take one fewer">−</button>
+          <input id="tk-qty" type="number" min="0" step="any" inputmode="decimal" value="1" />
+          <button type="button" class="step" id="tk-plus" aria-label="Take one more">+</button>
+        </div>
+        <button type="button" class="step-max" id="tk-max">Take max on hand (<span id="tk-maxn">${fmt(availAt(m.locations[0].locationId))}</span>)</button>
+      </div>
+      <div style="margin-top:14px"><button id="tk-add">Add to clock-out</button></div>
+      <div id="tk-msg"></div></div>`;
+
+    const qtyEl = document.getElementById("tk-qty");
+    const locEl = document.getElementById("tk-loc");
+    const maxnEl = document.getElementById("tk-maxn");
+    const minusEl = document.getElementById("tk-minus");
+    const plusEl = document.getElementById("tk-plus");
+    const maxEl = document.getElementById("tk-max");
+    const curMax = () => availAt(locEl.value);
+    // Grey out a key when it can't do anything, so it's always clear what's tappable:
+    // − off at 0, ＋ and Max off once you're at what's on hand.
+    const sync = () => {
+      const mx = curMax(); const v = Number(qtyEl.value) || 0;
+      maxnEl.textContent = fmt(mx);
+      minusEl.disabled = v <= 0;
+      plusEl.disabled = v >= mx;
+      maxEl.disabled = mx <= 0 || v >= mx;
+    };
+    const setQty = (n) => { qtyEl.value = fmt(!isFinite(n) || n < 0 ? 0 : n); sync(); };
+    // +/- move by whole units and never push past what's on hand; typing is still free
+    // (typing more than on hand routes into the "request more" flow on Add).
+    // Returns false when it hit a limit and nothing changed, so a hold can stop itself.
+    const bump = (d) => { const before = Math.floor(Number(qtyEl.value) || 0); let n = before + d; if (n < 0) n = 0; if (d > 0 && n > curMax()) n = curMax(); setQty(n); return n !== before; };
+    qtyEl.addEventListener("input", sync);
+    locEl.onchange = () => { if ((Number(qtyEl.value) || 0) > curMax()) setQty(curMax()); else sync(); };
+
+    // Tap to step once; press-and-hold to scroll the count quickly (stops at the limit).
+    let holdT, holdI;
+    const stopHold = () => { clearTimeout(holdT); clearInterval(holdI); };
+    const startHold = (d) => { if (!bump(d)) return; holdT = setTimeout(() => { holdI = setInterval(() => { if (!bump(d)) stopHold(); }, 75); }, 350); };
+    const wireHold = (el, d) => {
+      el.addEventListener("mousedown", (e) => { e.preventDefault(); startHold(d); });
+      el.addEventListener("touchstart", (e) => { e.preventDefault(); startHold(d); }, { passive: false });
+      ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((ev) => el.addEventListener(ev, stopHold));
+    };
+    wireHold(minusEl, -1);
+    wireHold(plusEl, 1);
+    maxEl.onclick = () => setQty(curMax());
+    sync();
+
     document.getElementById("tk-add").onclick = () => {
-      const lid = document.getElementById("tk-loc").value;
+      const lid = locEl.value;
       const loc = m.locations.find((l) => l.locationId === lid);
-      const qty = Number(document.getElementById("tk-qty").value);
+      const qty = Number(qtyEl.value);
       const msg = document.getElementById("tk-msg");
       if (!qty || qty <= 0) { msg.innerHTML = `<div class="notice error">Enter a quantity above 0.</div>`; return; }
       const avail = loc.qty - cartQtyFor(m.id, lid);

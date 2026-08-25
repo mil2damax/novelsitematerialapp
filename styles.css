@@ -131,6 +131,34 @@ input, select, textarea {
 textarea { min-height: 80px; font-family: var(--sans); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--brass); box-shadow: 0 0 0 3px rgba(184,134,62,.22); }
 .field { margin-bottom: 14px; }
+
+/* Quantity stepper on the clock-out Take panel */
+.stepper { display: flex; align-items: stretch; gap: 10px; }
+.stepper input {
+  text-align: center; font-family: var(--mono); font-size: 22px; font-weight: 600;
+  -moz-appearance: textfield; background: #FBF7EE; border: 2px solid var(--ink); color: var(--ink);
+}
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper input:focus { border-color: var(--brass); box-shadow: 0 0 0 3px rgba(184,134,62,.22); }
+/* Big +/- keys: brass = tappable/active, grey = at the limit (can't). */
+.step {
+  flex: 0 0 60px; min-width: 60px; min-height: 60px; padding: 0;
+  font-size: 30px; line-height: 1; font-weight: 500;
+  background: var(--brass); border: 1px solid var(--brass); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.step:hover:not(:disabled) { background: var(--brass-dark); border-color: var(--brass-dark); }
+.step:active:not(:disabled) { background: var(--brass-dark); transform: translateY(1px); }
+.step:disabled { background: var(--paper); border-color: var(--stone-line); color: #B7AE99; opacity: 1; cursor: default; }
+/* "Take max" shortcut: solid when it can do something, greyed when already at max. */
+.step-max {
+  width: 100%; margin-top: 10px; padding: 12px; min-height: 48px;
+  background: var(--paper-2); color: var(--ink); border: 1px solid var(--brass);
+  font-family: var(--mono); font-size: 13px; letter-spacing: .03em; font-weight: 600; text-transform: uppercase;
+}
+.step-max:hover:not(:disabled) { background: #F6EAD1; border-color: var(--brass-dark); }
+.step-max:disabled { background: var(--paper); color: #B7AE99; border-color: var(--stone-line); opacity: 1; cursor: default; }
+
 .inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
 .inline > * { flex: 1; min-width: 140px; }
 .inline .grow2 { flex: 2; }
@@ -194,6 +222,4 @@ tr.low td { background: #F7EFDD; }
 .netbar.error { background: var(--brick); }
 
 .cart-bar { position: sticky; bottom: 0; padding: 14px 0 calc(14px + var(--safe-b)); background: linear-gradient(to top, var(--paper) 74%, transparent); }
-.stepper { display: flex; align-items: center; gap: 8px; }
-.stepper input { width: 72px; text-align: center; }
 .spacer { height: 10px; }
