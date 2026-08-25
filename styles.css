@@ -159,6 +159,30 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .step-max:hover:not(:disabled) { background: #F6EAD1; border-color: var(--brass-dark); }
 .step-max:disabled { background: var(--paper); color: #B7AE99; border-color: var(--stone-line); opacity: 1; cursor: default; }
 
+/* Take panel opens as a bottom-sheet pinned to the viewport, so it's in view no
+   matter how far down the tapped material sits. */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 60; background: rgba(34, 29, 23, .5);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: sheet-fade .16s ease;
+}
+.sheet {
+  width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto;
+  background: var(--paper-2); border: 1px solid var(--stone-line); border-bottom: none;
+  border-radius: 16px 16px 0 0; padding: 16px 18px calc(20px + var(--safe-b));
+  box-shadow: 0 -10px 34px rgba(34, 29, 23, .28); animation: sheet-rise .2s ease;
+}
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.sheet-head b { font-family: var(--serif); font-size: 18px; line-height: 1.2; }
+.sheet-x { flex: 0 0 auto; background: transparent; border: none; color: var(--stone); font-size: 20px; min-height: 44px; min-width: 44px; padding: 0; }
+.sheet-x:hover { background: transparent; color: var(--ink); }
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-rise { from { transform: translateY(16px); } to { transform: translateY(0); } }
+@media (min-width: 620px) {
+  .sheet-backdrop { align-items: center; }
+  .sheet { border: 1px solid var(--stone-line); border-radius: 14px; padding-bottom: 20px; }
+}
+
 .inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
 .inline > * { flex: 1; min-width: 140px; }
 .inline .grow2 { flex: 2; }

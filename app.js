@@ -239,9 +239,8 @@ async function viewTrade(tradeId) {
       ${backTab ? `<a href="#/" class="muted" style="font-size:12px">← All trades</a>` : ""}
       <h1>${esc(trade.name)}</h1><p class="sub">Tap a material to take some. You can't take more than what's on hand.</p>
       ${groups.map((g) => `<h2>${esc(g.label)}</h2>${g.cats.map((c) => `${(g.cats.length > 1 || c.name !== "General") ? `<div class="cat-label">${esc(c.name)}</div>` : ""}<div class="list" style="margin-bottom:14px">${c.items.map(matRow).join("")}</div>`).join("")}`).join("") || `<div class="box">No materials set up for this trade yet.</div>`}
-      <div id="takepanel"></div>
-      <div id="reqpanel"></div>
       ${cart.length ? `<div class="box"><b>Taking (${cart.length})</b>${cart.map((c, i) => `<div class="row"><div>${fmt(c.qty)} ${esc(c.unit)} · ${esc(c.name)} <span class="muted">from ${esc(c.locationName)}</span></div><button class="link" data-rm="${i}">Remove</button></div>`).join("")}</div>` : ""}
+      <div id="takepanel"></div>
       <div id="msg"></div>
       <div class="cart-bar"><button class="block" id="submit" ${cart.length ? "" : "disabled"}>Submit clock-out (${cart.length} item${cart.length === 1 ? "" : "s"})</button></div>`;
 
@@ -253,12 +252,23 @@ async function viewTrade(tradeId) {
   function openTake(mid) {
     const m = materials.find((x) => x.id === mid);
     const panel = document.getElementById("takepanel");
-    document.getElementById("reqpanel").innerHTML = "";
-    if (!m.locations.length) { panel.innerHTML = `<div class="box amber">No stock/location on record for ${esc(m.name)} yet. Use “Request” once an owner adds a location.</div>`; return; }
+    // The panel opens as a bottom-sheet pinned to the viewport (not at the foot of the
+    // page), so it's in view right where the thumb is no matter how far down the tapped
+    // material sits. Closes on the ✕, a tap on the dim backdrop, or after adding.
+    const closeTake = () => { panel.innerHTML = ""; };
+    const wireClose = () => {
+      document.getElementById("tk-close").onclick = closeTake;
+      document.getElementById("tk-sheet").addEventListener("click", (e) => { if (e.target.id === "tk-sheet") closeTake(); });
+    };
+    const sheetHead = `<div class="sheet-head"><b>${esc(m.name)}</b><button type="button" class="sheet-x" id="tk-close" aria-label="Close">✕</button></div>`;
+    if (!m.locations.length) {
+      panel.innerHTML = `<div class="sheet-backdrop" id="tk-sheet"><div class="sheet">${sheetHead}<div class="box amber" style="margin-top:2px">No stock or location on record for this yet. Use “Request” once an owner adds a location.</div></div></div>`;
+      wireClose(); return;
+    }
     // How many are still available at a location (on hand minus what's already in the cart).
     const availAt = (lid) => Math.max(0, (m.locations.find((l) => l.locationId === lid)?.qty || 0) - cartQtyFor(m.id, lid));
-    panel.innerHTML = `<div class="box"><b>${esc(m.name)}</b>
-      <div style="margin-top:10px"><label>From location</label><select id="tk-loc">${m.locations.map((l) => `<option value="${l.locationId}">${esc(l.name)} (${fmt(l.qty)} ${esc(m.unit)})</option>`).join("")}</select></div>
+    panel.innerHTML = `<div class="sheet-backdrop" id="tk-sheet"><div class="sheet" role="dialog" aria-modal="true">${sheetHead}
+      <div><label>From location</label><select id="tk-loc">${m.locations.map((l) => `<option value="${l.locationId}">${esc(l.name)} (${fmt(l.qty)} ${esc(m.unit)})</option>`).join("")}</select></div>
       <div style="margin-top:12px"><label>Qty (${esc(m.unit)})</label>
         <div class="stepper">
           <button type="button" class="step" id="tk-minus" aria-label="Take one fewer">−</button>
@@ -267,8 +277,9 @@ async function viewTrade(tradeId) {
         </div>
         <button type="button" class="step-max" id="tk-max">Take max on hand (<span id="tk-maxn">${fmt(availAt(m.locations[0].locationId))}</span>)</button>
       </div>
-      <div style="margin-top:14px"><button id="tk-add">Add to clock-out</button></div>
-      <div id="tk-msg"></div></div>`;
+      <div style="margin-top:16px"><button class="block" id="tk-add">Add to clock-out</button></div>
+      <div id="tk-msg"></div><div id="reqpanel"></div></div></div>`;
+    wireClose();
 
     const qtyEl = document.getElementById("tk-qty");
     const locEl = document.getElementById("tk-loc");
