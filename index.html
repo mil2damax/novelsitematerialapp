@@ -1,21 +1,150 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#221D17" />
-    <title>Site Materials — Novel Construction</title>
-    <link rel="icon" href="icon.svg" />
-    <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <div id="app"><div class="center muted">Loading…</div></div>
-    <div id="toast" class="toast" hidden></div>
-    <div id="netbar" class="netbar" hidden></div>
-    <script type="module" src="app.js"></script>
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#211C16">
+<title>Site Materials — How it works</title>
+<meta name="description" content="How the Tru Durham crew and office use Site Materials: the field reports takes in WhatsApp, the office logs them in the app.">
+<link rel="icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  :root {
+    --ground: #F0E8D8;
+    --surface: #FBF7EE;
+    --ink: #211C16;
+    --ink-soft: #463E31;
+    --muted: #786E5D;
+    --line: #DACFB6;
+    --brass: #B8863E;
+    --brass-dk: #8A6224;
+    --hunter: #3E4A38;
+    --wa-bubble: #DCF1C9;
+    --wa-edge: #C4E0AC;
+    --wa-ink: #2C3B22;
+    --wa-name: #4C7A2E;
+    --serif: "Fraunces", Georgia, serif;
+    --sans: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #16130E; --surface: #211C16; --ink: #F1EADB; --ink-soft: #D6CDBA;
+      --muted: #9C9280; --line: #3A3327; --brass: #D2A860; --brass-dk: #C0904A; --hunter: #9DB08C;
+      --wa-bubble: #273420; --wa-edge: #384c2c; --wa-ink: #D8ECC7; --wa-name: #9BC97A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #16130E; --surface: #211C16; --ink: #F1EADB; --ink-soft: #D6CDBA;
+    --muted: #9C9280; --line: #3A3327; --brass: #D2A860; --brass-dk: #C0904A; --hunter: #9DB08C;
+    --wa-bubble: #273420; --wa-edge: #384c2c; --wa-ink: #D8ECC7; --wa-name: #9BC97A;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { background: var(--ground); color: var(--ink); font-family: var(--sans); line-height: 1.55; margin: 0; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 620px; margin: 0 auto; padding: 34px 22px 64px; }
+
+  .mast { display: flex; align-items: center; gap: 11px; padding-bottom: 20px; }
+  .wm-n { width: 32px; height: 32px; flex: 0 0 32px; border: 2px solid var(--brass); border-radius: 4px; display: grid; place-items: center;
+          font-family: var(--serif); font-weight: 600; font-size: 19px; color: var(--brass-dk); background: var(--surface); }
+  .wm-txt { font-family: var(--mono); font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); line-height: 1.4; }
+  .wm-txt b { display: block; color: var(--ink); font-weight: 600; }
+
+  .hero { border-top: 3px solid var(--brass); padding-top: 22px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--brass-dk); margin: 0 0 12px; }
+  h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(30px, 8vw, 46px); line-height: 1.05; margin: 0 0 14px; text-wrap: balance; letter-spacing: -.015em; }
+  .say { font-size: 19px; color: var(--ink-soft); margin: 0 0 22px; max-width: 30ch; }
+  .say b { color: var(--ink); font-weight: 600; }
+
+  .phone { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  .bubble { background: var(--wa-bubble); border: 1px solid var(--wa-edge); color: var(--wa-ink); border-radius: 4px 14px 14px 14px;
+            padding: 12px 15px; max-width: 400px; font-size: 16.5px; line-height: 1.45; }
+  .bubble .who { display: block; font-size: 13px; font-weight: 700; color: var(--wa-name); margin-bottom: 3px; }
+  .bubble .time { font-family: var(--mono); font-size: 10px; color: var(--wa-name); opacity: .8; float: right; margin: 6px 0 -4px 8px; }
+  .also { margin: 22px 0 0; font-size: 16px; color: var(--ink-soft); }
+  .also b { color: var(--ink); font-weight: 600; }
+
+  .rule { height: 1px; background: var(--line); border: none; margin: 44px 0; }
+
+  .office-tag { display: inline-block; font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+                color: var(--hunter); border: 1px solid var(--hunter); border-radius: 20px; padding: 4px 11px; margin-bottom: 14px; }
+  h2 { font-family: var(--serif); font-weight: 600; font-size: 27px; line-height: 1.1; margin: 0 0 8px; letter-spacing: -.01em; }
+  .sub { font-size: 16px; color: var(--muted); margin: 0 0 18px; }
+  .sub b { color: var(--ink); font-weight: 600; }
+
+  .applink { display: inline-flex; align-items: center; gap: 9px; font-family: var(--sans); font-size: 16px; font-weight: 600;
+             background: var(--hunter); color: #F4F1E6; text-decoration: none; padding: 13px 22px; border-radius: 8px; margin-bottom: 4px; }
+  .applink:hover { filter: brightness(1.08); }
+  .applink .arr { font-family: var(--mono); }
+  .applink + .applink-note { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 9px; letter-spacing: .03em; }
+
+  ol.jobs { list-style: none; counter-reset: j; margin: 22px 0 0; padding: 0; display: grid; gap: 4px; }
+  ol.jobs li { counter-increment: j; position: relative; padding: 14px 0 14px 46px; border-bottom: 1px solid var(--line); }
+  ol.jobs li:last-child { border-bottom: none; }
+  ol.jobs li::before { content: counter(j); position: absolute; left: 0; top: 13px; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--hunter); color: var(--surface); font-family: var(--mono); font-weight: 600; font-size: 14px; display: grid; place-items: center; }
+  ol.jobs b { font-weight: 600; }
+  ol.jobs span { display: block; color: var(--muted); font-size: 14.5px; margin-top: 1px; }
+
+  .who-note { margin-top: 22px; font-size: 14.5px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .who-note b { color: var(--ink); font-weight: 600; }
+
+  footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; color: var(--muted);
+           display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+  a { color: var(--brass-dk); }
+  :focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+  @media print { :root { --ground:#fff; --surface:#fff; } body { background:#fff; } .wrap { max-width:none; } .applink { border: 1px solid var(--hunter); } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="mast">
+      <div class="wm-n">N</div>
+      <div class="wm-txt"><b>Novel Construction</b>Site Materials · Tru Durham</div>
+    </header>
+
+    <div class="hero">
+      <p class="eyebrow">In the field — the crew</p>
+      <h1>Took something? Say so in WhatsApp.</h1>
+      <p class="say">You don't touch the app. Just <b>post what you grabbed</b> in the crew WhatsApp group. The office does the rest.</p>
+
+      <p class="phone">Crew WhatsApp group</p>
+      <div class="bubble">
+        <span class="who">Omar</span>
+        Grabbed 2 boxes of 12/2 MC wire and a roll of Romex from the Conex.
+        <span class="time">7:42 AM</span>
+      </div>
+
+      <p class="also">Running low or need something? <b>Say that in the group too</b> — the office will order it.</p>
+    </div>
+
+    <hr class="rule">
+
+    <div class="office">
+      <span class="office-tag">Office only — not needed in the field</span>
+      <h2>For the super &amp; owners</h2>
+      <p class="sub">You keep the count right. Log in with your name and PIN.</p>
+
+      <a class="applink" href="app.html">Open the app <span class="arr">→</span></a>
+      <span class="applink-note">sm.novelconstruction.co/app.html</span>
+
+      <ol class="jobs">
+        <li><b>Log what the crew posts.</b><span>Read the WhatsApp group and enter each take in the app, so the on-hand count stays accurate.</span></li>
+        <li><b>Check what's on hand.</b><span>The Inventory tab — any trade, any time. See what's low before the crew runs out.</span></li>
+        <li><b>Order what they ask for.</b><span>When someone requests something in the group, place the order and mark it handled.</span></li>
+      </ol>
+
+      <p class="who-note"><b>Super vs. owner:</b> the superintendent (David) sees and runs the whole site. Only owners (Milan &amp; Kamal) change the master lists — the material catalog, people, and PINs.</p>
+    </div>
+
+    <footer>
+      <span>Novel Construction · Site Materials</span>
+      <span>sm.novelconstruction.co</span>
+    </footer>
+  </div>
+</body>
 </html>
